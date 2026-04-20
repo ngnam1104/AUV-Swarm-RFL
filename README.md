@@ -64,30 +64,3 @@ To run this repository on Google Colab (benefiting from free GPU/TPU acceleratio
 1. Upload the project to your GitHub.
 2. Open the file `colab_experiment.ipynb` in Google Colab.
 3. Follow the cells in the notebook to interactively clone your repository, install dependencies, and run large-scale training pipelines.
-
----
-
-## 🐙 Git Deployment Instructions
-
-If you haven't published this repository to GitHub yet, follow these commands in your local terminal:
-
-```bash
-# 1. Initialize Git repository
-git init
-
-# 2. Stage all project files (ignoring files in .gitignore like .venv, results, etc.)
-git add .
-
-# 3. Commit your workspace initially
-git add .
-
-# 4. Set the default branch to 'main'
-git branch -M main
-
-# 5. Link your remote GitHub repository
-# (REPLACE <your-username> and <repo-name> WITH YOUR ACTUAL GITHUB URL)
-git remote add origin https://github.com/<your-username>/AUV-Swarm-RFL.git
-
-# 6. Push your code to GitHub
-git push -u origin main
-```
