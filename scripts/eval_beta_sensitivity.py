@@ -33,7 +33,12 @@ def build_config(m_value: int, max_rounds: int, eval_interval: int) -> SimpleNam
     return cfg
 
 
-def evaluate_for_beta(cfg: SimpleNamespace, beta: float, rounds: int) -> tuple[float, float, float]:
+def evaluate_for_beta(
+    cfg: SimpleNamespace,
+    beta: float,
+    rounds: int,
+    enable_early_stopping: bool,
+) -> tuple[float, float, float]:
     fl_sim = FLSimulator(cfg)
     comm_model = CommunicationModel(cfg)
     latency_model = LatencyModel(cfg, comm_model)
@@ -74,10 +79,10 @@ def evaluate_for_beta(cfg: SimpleNamespace, beta: float, rounds: int) -> tuple[f
         total_time_consumption += float(t_total)
         final_accuracy = float(accuracy)
 
-        if rnd % 5 == 0 or rnd == rounds or is_converged:
+        if rnd % 5 == 0 or rnd == rounds or (enable_early_stopping and is_converged):
             print(f"    [Round {rnd}/{rounds}] beta={beta:.1f} | acc={final_accuracy:.4f} | comm={communication_times:.0f} | delay={t_total:.2f}s", flush=True)
 
-        if is_converged:
+        if enable_early_stopping and is_converged:
             print(f"    [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f}", flush=True)
             break
 
@@ -184,6 +189,11 @@ def main() -> None:
     parser.add_argument("--beta-end", type=float, default=0.9, help="End beta")
     parser.add_argument("--beta-step", type=float, default=0.1, help="Beta step")
     parser.add_argument(
+        "--enable-early-stopping",
+        action="store_true",
+        help="Enable early stopping during beta sweep (default: disabled for fixed-round Figure 1-3 reproduction)",
+    )
+    parser.add_argument(
         "--eval-interval",
         type=int,
         default=1,
@@ -205,6 +215,7 @@ def main() -> None:
 
     print("[INFO] Start beta sensitivity evaluation")
     print(f"[INFO] rounds={args.rounds}, m_values={args.m_values}, betas={betas.tolist()}")
+    print(f"[INFO] early_stopping={'ON' if args.enable_early_stopping else 'OFF (fixed rounds)'}")
     print_input_warnings(rounds=int(args.rounds), betas=betas, m_values=[int(m) for m in args.m_values])
 
     for m_value in args.m_values:
@@ -219,6 +230,7 @@ def main() -> None:
                 cfg=cfg,
                 beta=float(beta),
                 rounds=args.rounds,
+                enable_early_stopping=bool(args.enable_early_stopping),
             )
 
             elapsed = time.perf_counter() - t0
