@@ -5,6 +5,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 from stable_baselines3 import DDPG, PPO
@@ -280,7 +281,7 @@ def greedy_action(env: AUVSwarmEnv) -> np.ndarray:
 
 def run_policy_free_baseline(config: SimpleNamespace, episodes: int, mode: str) -> list[float]:
     env = make_env(config)
-    base_env = env.env
+    base_env = cast(AUVSwarmEnv, env.env)
     costs: list[float] = []
 
     for ep in range(episodes):
