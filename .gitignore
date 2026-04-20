@@ -1,0 +1,67 @@
+### Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+### Virtual environments
+.venv/
+venv/
+env.bak/
+venv.bak/
+
+### Packaging/build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+### Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+### Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+### VS Code and editor files
+.vscode/
+*.code-workspace
+
+### OS-specific files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+### Local datasets and temporary outputs
+.data/
+data/
+tmp/
+temp/
+.docs/
+
+### Experiment logs and generated artifacts
+*.log
+results/logs/
+results/**/tb/
+results/**/tensorboard/
+
+### Trained models / checkpoints
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+*.joblib
+*baseline_model*
+
+### Compressed outputs
+*.zip
+*.tar
+*.tar.gz
+*.7z
