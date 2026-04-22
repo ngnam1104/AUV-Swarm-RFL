@@ -126,16 +126,8 @@ def save_results_csv(rows: List[Dict], output_csv: str) -> None:
         return
 
     ensure_dir(os.path.dirname(output_csv))
-    fieldnames = [
-        "M",
-        "scheme",
-        "rounds",
-        "communication_times",
-        "accuracy",
-        "time_consumption",
-        "energy_consumption",
-        "accumulated_cost",
-    ]
+    # Tự động lấy tên cột động từ dữ liệu đầu vào để không bị lỗi thiếu cột
+    fieldnames = list(rows[0].keys())
 
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

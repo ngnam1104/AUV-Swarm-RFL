@@ -55,6 +55,7 @@ def evaluate_for_beta(
 
     communication_times = 0.0
     total_time_consumption = 0.0
+    time_consumption_first_5 = 0.0
     final_accuracy = 0.0
 
     for rnd in range(1, rounds + 1):
@@ -77,6 +78,8 @@ def evaluate_for_beta(
 
         communication_times += float(np.sum(lambda_m))
         total_time_consumption += float(t_total)
+        if rnd <= 5:
+            time_consumption_first_5 += float(t_total)
         final_accuracy = float(accuracy)
 
         if rnd % 5 == 0 or rnd == rounds or (enable_early_stopping and is_converged):
@@ -86,7 +89,8 @@ def evaluate_for_beta(
             print(f"    [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f}", flush=True)
             break
 
-    return communication_times, final_accuracy, total_time_consumption
+    avg_time_first_5 = time_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
+    return communication_times, final_accuracy, avg_time_first_5
 
 
 def save_csv(rows: list[dict], output_csv: str) -> None:
@@ -254,39 +258,40 @@ def main() -> None:
     print_output_diagnostics(rows)
 
     # Figure 1: Communication times vs beta
-    fig1_path = os.path.join(args.out_dir, "figure1_communication_times.png")
-    plot_metric(
-        rows=rows,
-        metric_key="communication_times",
-        ylabel="Communication times",
-        title="Figure 1: Communication times vs beta",
-        output_path=fig1_path,
-    )
+    # fig1_path = os.path.join(args.out_dir, "figure1_communication_times.png")
+    # plot_metric(
+    #     rows=rows,
+    #     metric_key="communication_times",
+    #     ylabel="Communication times",
+    #     title="Figure 1: Communication times vs beta",
+    #     output_path=fig1_path,
+    # )
 
     # Figure 2: Accuracy vs beta
-    fig2_path = os.path.join(args.out_dir, "figure2_accuracy.png")
-    plot_metric(
-        rows=rows,
-        metric_key="accuracy_round_1000",
-        ylabel="Accuracy",
-        title="Figure 2: Accuracy at round 1000 vs beta",
-        output_path=fig2_path,
-    )
+    # fig2_path = os.path.join(args.out_dir, "figure2_accuracy.png")
+    # plot_metric(
+    #     rows=rows,
+    #     metric_key="accuracy_round_1000",
+    #     ylabel="Accuracy",
+    #     title="Figure 2: Accuracy at round 1000 vs beta",
+    #     output_path=fig2_path,
+    # )
 
     # Figure 3: Time consumption vs beta
     fig3_path = os.path.join(args.out_dir, "figure3_time_consumption.png")
+    
+    # Chỉ lấy 5 vòng FL đầu tiên để tính trung bình cho Figure 3
+    # Lưu ý: rows đã chứa avg_time_first_5 trong trường 'time_consumption' từ hàm evaluate_for_beta
     plot_metric(
         rows=rows,
         metric_key="time_consumption",
-        ylabel="Time consumption",
-        title="Figure 3: Time consumption vs beta",
+        ylabel="Average Time consumption (first 5 rounds)",
+        title="Figure 3: Average Time consumption vs beta (5 rounds)",
         output_path=fig3_path,
     )
 
     print("[DONE] Saved outputs:")
     print(f"- {csv_path}")
-    print(f"- {fig1_path}")
-    print(f"- {fig2_path}")
     print(f"- {fig3_path}")
 
 
