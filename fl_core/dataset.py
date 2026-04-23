@@ -1,6 +1,6 @@
 from torchvision import datasets, transforms
 from config.settings import DATA_DIR
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 import numpy as np
 import os
 
@@ -30,7 +30,7 @@ class DataManager:
         return all(os.path.exists(os.path.join(raw_dir, name)) for name in required_raw)
 
     @staticmethod
-    def get_mnist_data(num_users: int, iid: bool = True, max_train_size: int = None):
+    def get_mnist_data(num_users: int, iid: bool = True, max_train_size: int = None, max_test_size: int = None):
         apply_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
@@ -43,21 +43,25 @@ class DataManager:
         train_dataset = datasets.MNIST(root=DATA_DIR, train=True, download=need_download, transform=apply_transform)
         test_dataset  = datasets.MNIST(root=DATA_DIR, train=False, download=need_download, transform=apply_transform)
         
+        # Giảm kích thước dataset nếu được yêu cầu
+        if max_train_size is not None and max_train_size < len(train_dataset):
+            train_dataset = Subset(train_dataset, range(max_train_size))
+        
+        if max_test_size is not None and max_test_size < len(test_dataset):
+            test_dataset = Subset(test_dataset, range(max_test_size))
+
         dict_users = {}
 
         # Paper Section 5: "MNIST consisting of 42,000 digital images"
-        # Giới hạn tập train theo max_train_size nếu có.
+        # Chia dữ liệu cho người dùng dựa trên train_dataset hiện tại
         num_items = len(train_dataset)
-        if max_train_size is not None and max_train_size < num_items:
-            num_items = max_train_size
 
         if iid:
-            all_indices = np.random.permutation(len(train_dataset))[:num_items]
+            all_indices = np.random.permutation(num_items)
             split_indices = np.array_split(all_indices, num_users)
             dict_users = {user_id: split.tolist() for user_id, split in enumerate(split_indices)}
         else:
             # Fallback giữ tính dùng được nếu cần gọi non-IID ở nơi khác.
-            num_items = len(train_dataset)
             all_indices = np.arange(num_items)
             split_indices = np.array_split(all_indices, num_users)
             dict_users = {user_id: split.tolist() for user_id, split in enumerate(split_indices)}
