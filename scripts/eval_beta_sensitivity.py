@@ -62,9 +62,15 @@ def evaluate_for_beta(
     cost_consumption_first_5 = 0.0
     reward_consumption_first_5 = 0.0
     final_accuracy = 0.0
+    
+    total_local_train_sec = 0.0
+    total_aggregate_sec = 0.0
 
     for rnd in range(1, rounds + 1):
         accuracy, active_indices, _, is_converged = fl_sim.sync_run_step(beta=beta, rnd=rnd)
+        
+        total_local_train_sec += fl_sim.last_timing_stats.get("local_train_and_grad_sec", 0.0)
+        total_aggregate_sec += fl_sim.last_timing_stats.get("aggregate_sec", 0.0)
 
         lambda_m = np.zeros(cfg.M, dtype=float)
         lambda_m[active_indices] = 1.0
@@ -103,14 +109,16 @@ def evaluate_for_beta(
             print(f"    [Round {rnd}/{rounds}] beta={beta:.1f} | acc={final_accuracy:.4f} | comm={communication_times:.0f} | delay={t_total:.2f}s", flush=True)
 
         if enable_early_stopping and is_converged:
-            print(f"    [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f}", flush=True)
+            print(f"    [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f} | E={E_total:.2f}J | cost={cost:.2f}", flush=True)
             break
+            
+    print(f"    [Time Tracking] beta={beta:.1f} | Train mạng: {total_local_train_sec:.2f}s | Tổng hợp: {total_aggregate_sec:.2f}s", flush=True)
 
     avg_time_first_5 = time_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
     avg_energy_first_5 = energy_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
     avg_cost_first_5 = cost_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
     avg_reward_first_5 = reward_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    return communication_times, final_accuracy, avg_time_first_5, avg_energy_first_5, avg_cost_first_5, avg_reward_first_5
+    return communication_times, final_accuracy, avg_time_first_5, avg_energy_first_5, avg_cost_first_5, avg_reward_first_5, rnd
 
 
 def save_csv(rows: list[dict], output_csv: str) -> None:
@@ -126,6 +134,7 @@ def save_csv(rows: list[dict], output_csv: str) -> None:
         "energy_consumption",
         "cost_consumption",
         "reward_consumption",
+        "converged_round",
         "elapsed_seconds",
     ]
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
@@ -298,7 +307,7 @@ def main() -> None:
             t0 = time.perf_counter()
 
             print(f"\n[JOB START] M={m_value}, beta={beta:.1f}", flush=True)
-            communication_times, accuracy, time_consumption, energy_consumption, cost_consumption, reward_consumption = evaluate_for_beta(
+            communication_times, accuracy, time_consumption, energy_consumption, cost_consumption, reward_consumption, converged_round = evaluate_for_beta(
                 cfg=cfg,
                 beta=float(beta),
                 rounds=args.rounds,
@@ -315,13 +324,14 @@ def main() -> None:
                 "energy_consumption": float(energy_consumption),
                 "cost_consumption": float(cost_consumption),
                 "reward_consumption": float(reward_consumption),
+                "converged_round": int(converged_round),
                 "elapsed_seconds": float(elapsed),
             }
             rows.append(row)
 
             print(
                 f"[PROGRESS {job_idx}/{total_jobs}] M={m_value}, beta={beta:.1f} | "
-                f"comm={communication_times:.1f}, acc={accuracy:.4f}, T_total={time_consumption:.2f}, elapsed={elapsed:.2f}s"
+                f"comm={communication_times:.1f}, acc={accuracy:.4f}, T_total={time_consumption:.2f}, converged_round={converged_round}, elapsed={elapsed:.2f}s"
             )
 
     csv_path = os.path.join(args.out_dir, "beta_sensitivity_results.csv")
@@ -352,10 +362,20 @@ def main() -> None:
     fig3_path = os.path.join(args.out_dir, "figure3_latency_reward_cost.png")
     plot_latency_reward_cost(rows, fig3_path)
 
+    # Figure 4: Converged Round vs beta
+    fig4_path = os.path.join(args.out_dir, "figure4_converged_round.png")
+    plot_metric(
+        rows=rows,
+        metric_key="converged_round",
+        ylabel="Converged Round",
+        title="Figure 4: Converged Round vs beta",
+        output_path=fig4_path,
+    )
+
     print("[DONE] Saved outputs:")
     print(f"- {csv_path}")
     print(f"- {fig3_path}")
-
+    print(f"- {fig4_path}")
 
 if __name__ == "__main__":
     main()
