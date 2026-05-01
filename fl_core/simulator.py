@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from fl_core.aggregator import AsyncAggregator
 from fl_core.control import LazyNodeController
 from fl_core.dataset import DataManager
-from fl_core.models import ModelUtils, SimpleNN
+from fl_core.models import ModelUtils, SimpleNN, device
 from fl_core.worker import LocalWorker
 from fl_core.early_stopping import EarlyStopping
 
@@ -40,9 +40,20 @@ class FLSimulator:
         self.N_total = float(sum(self.N_m_dict.values()))
 
         # Khởi tạo model toàn cục và các worker cục bộ.
-        self.global_model = SimpleNN()
+        self.global_model = SimpleNN().to(device)
         self.w_global = ModelUtils.get_params(self.global_model)
         self.w_prev = None
+
+        # Preload test set to GPU
+        temp_loader = DataLoader(self.test_dataset, batch_size=2048, shuffle=False, num_workers=0)
+        self.test_images = []
+        self.test_labels = []
+        for imgs, lbls in temp_loader:
+            self.test_images.append(imgs)
+            self.test_labels.append(lbls)
+        if self.test_images:
+            self.test_images = torch.cat(self.test_images, dim=0).to(device)
+            self.test_labels = torch.cat(self.test_labels, dim=0).to(device)
 
         self.workers = [
             LocalWorker(worker_id=m, dataset=self.train_dataset, idxs=self.dict_users[m])
@@ -111,6 +122,7 @@ class FLSimulator:
                 grad_sq += float(torch.sum(scaled_grad * scaled_grad).item())
             local_grad_sq_norms[worker.worker_id] = grad_sq
             worker_times.append(time.perf_counter() - t_worker_start)
+
         t_local_train = time.perf_counter() - t_local_train_start
 
         # 3) Chọn active node theo Lazy Node Controller.
@@ -190,20 +202,24 @@ class FLSimulator:
 
     def _evaluate_accuracy(self) -> float:
         self.global_model.eval()
-        loader = DataLoader(self.test_dataset, batch_size=256, shuffle=False)
-
         correct = 0
         total = 0
         with torch.inference_mode():
-            for images, labels in loader:
-                logits = self.global_model(images)
-                preds = torch.argmax(logits, dim=1)
-                correct += int((preds == labels).sum().item())
-                total += int(labels.size(0))
+            if hasattr(self, 'test_images') and len(self.test_images) > 0:
+                batch_size = 2048
+                n_samples = len(self.test_labels)
+                for start_idx in range(0, n_samples, batch_size):
+                    end_idx = min(start_idx + batch_size, n_samples)
+                    images = self.test_images[start_idx:end_idx]
+                    labels = self.test_labels[start_idx:end_idx]
+                    logits = self.global_model(images)
+                    preds = torch.argmax(logits, dim=1)
+                    correct += int((preds == labels).sum().item())
+                    total += int(labels.size(0))
         return (correct / total) if total > 0 else 0.0
 
     def reset(self):
-        self.global_model = SimpleNN()
+        self.global_model = SimpleNN().to(device)
         self.w_global = ModelUtils.get_params(self.global_model)
         self.w_prev = None
         self.aggregator = AsyncAggregator(

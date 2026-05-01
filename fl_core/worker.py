@@ -3,7 +3,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from fl_core.dataset import DatasetSplit
-from fl_core.models import ModelUtils, SimpleNN
+from fl_core.models import ModelUtils, SimpleNN, device
+
 
 
 class LocalWorker:
@@ -24,11 +25,11 @@ class LocalWorker:
             self.all_labels.append(lbls)
             
         if self.all_images:
-            self.all_images = torch.cat(self.all_images, dim=0)
-            self.all_labels = torch.cat(self.all_labels, dim=0)
+            self.all_images = torch.cat(self.all_images, dim=0).to(device)
+            self.all_labels = torch.cat(self.all_labels, dim=0).to(device)
             
         # Model dùng chung để tránh overhead cấp phát mỗi round
-        self.model = SimpleNN()
+        self.model = SimpleNN().to(device)
         self.criterion = nn.CrossEntropyLoss()
 
     def local_train(self, global_params: dict, num_epochs: int, lr: float, batch_size: int) -> tuple[dict, float]:

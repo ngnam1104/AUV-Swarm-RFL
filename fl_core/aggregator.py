@@ -1,5 +1,5 @@
 import torch
-
+from fl_core.models import device
 
 class AsyncAggregator:
     """Xử lý logic nén và tổng hợp bất đồng bộ (Lazy Nodes)."""
@@ -9,7 +9,7 @@ class AsyncAggregator:
         self.N_total = float(N_total)
         # Cache giữ trọng số mới nhất của toàn bộ workers.
         self.worker_cache = {
-            worker_id: {k: v.detach().cpu().clone() for k, v in initial_weights.items()}
+            worker_id: {k: v.detach().clone() for k, v in initial_weights.items()}
             for worker_id in range(num_workers)
         }
 
@@ -18,7 +18,7 @@ class AsyncAggregator:
         # 1) Update cache của các workers active bằng weights mới nhận được.
         for worker_id, new_weights in active_weights_dict.items():
             self.worker_cache[worker_id] = {
-                k: (v.detach().cpu().clone() if isinstance(v, torch.Tensor) else torch.tensor(v))
+                k: (v.detach().clone() if isinstance(v, torch.Tensor) else torch.tensor(v, device=device))
                 for k, v in new_weights.items()
             }
 

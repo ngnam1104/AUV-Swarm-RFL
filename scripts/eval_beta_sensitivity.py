@@ -17,6 +17,7 @@ from config.settings import ACOUSTIC_CFG, FL_CFG, HW_CFG, RL_CFG
 from env.communication import CommunicationModel
 from env.energy import EnergyModel
 from env.latency import LatencyModel
+from env.reward import RewardModel
 from fl_core.simulator import FLSimulator
 
 
@@ -43,6 +44,7 @@ def evaluate_for_beta(
     comm_model = CommunicationModel(cfg)
     latency_model = LatencyModel(cfg, comm_model)
     energy_model = EnergyModel(cfg)
+    reward_model = RewardModel(cfg)
 
     # Co dinh cac tham so vat ly o muc trung binh theo yeu cau.
     p_mid = 0.5 * (float(cfg.p_max) + 0.01)
@@ -56,6 +58,9 @@ def evaluate_for_beta(
     communication_times = 0.0
     total_time_consumption = 0.0
     time_consumption_first_5 = 0.0
+    energy_consumption_first_5 = 0.0
+    cost_consumption_first_5 = 0.0
+    reward_consumption_first_5 = 0.0
     final_accuracy = 0.0
 
     for rnd in range(1, rounds + 1):
@@ -64,13 +69,22 @@ def evaluate_for_beta(
         lambda_m = np.zeros(cfg.M, dtype=float)
         lambda_m[active_indices] = 1.0
 
-        _, _, t_total, _ = energy_model.compute_total_energy_from_latency(
+        E_total, energy_details, t_total, _ = energy_model.compute_total_energy_from_latency(
             latency_model=latency_model,
             lambda_m=lambda_m,
             f_m=f_m,
             p_m=p_m,
             f_L=f_l,
             p_L=p_l,
+        )
+        
+        E_m_array = energy_details["E_Cp_m"] + energy_details["E_C_m"]
+        E_L_val_total = energy_details["E_Cp_L"] + energy_details["E_C_L"]
+        reward, cost, _ = reward_model.compute_reward(
+            T_total=t_total,
+            E_total=E_total,
+            E_m=E_m_array,
+            E_L=E_L_val_total
         )
         
         if rnd == 1:
@@ -80,6 +94,9 @@ def evaluate_for_beta(
         total_time_consumption += float(t_total)
         if rnd <= 5:
             time_consumption_first_5 += float(t_total)
+            energy_consumption_first_5 += float(E_total)
+            cost_consumption_first_5 += float(cost)
+            reward_consumption_first_5 += float(reward)
         final_accuracy = float(accuracy)
 
         if rnd % 5 == 0 or rnd == rounds or (enable_early_stopping and is_converged):
@@ -90,7 +107,10 @@ def evaluate_for_beta(
             break
 
     avg_time_first_5 = time_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    return communication_times, final_accuracy, avg_time_first_5
+    avg_energy_first_5 = energy_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
+    avg_cost_first_5 = cost_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
+    avg_reward_first_5 = reward_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
+    return communication_times, final_accuracy, avg_time_first_5, avg_energy_first_5, avg_cost_first_5, avg_reward_first_5
 
 
 def save_csv(rows: list[dict], output_csv: str) -> None:
@@ -103,6 +123,9 @@ def save_csv(rows: list[dict], output_csv: str) -> None:
         "communication_times",
         "accuracy_round_1000",
         "time_consumption",
+        "energy_consumption",
+        "cost_consumption",
+        "reward_consumption",
         "elapsed_seconds",
     ]
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
@@ -135,6 +158,51 @@ def plot_metric(
     plt.title(title)
     plt.grid(True, alpha=0.3)
     plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+
+
+def plot_latency_reward_cost(rows: list[dict], output_path: str) -> None:
+    plt.figure(figsize=(18, 5))
+    all_m = sorted({int(r["M"]) for r in rows})
+    
+    # Latency
+    plt.subplot(1, 3, 1)
+    for m_value in all_m:
+        filtered = [r for r in rows if int(r["M"]) == m_value]
+        filtered.sort(key=lambda x: float(x["beta"]))
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["time_consumption"]) for r in filtered], marker="o", lw=2, label=f"M={m_value}")
+    plt.xlabel("beta")
+    plt.ylabel("Average Latency (s)")
+    plt.title("Latency vs beta")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Reward
+    plt.subplot(1, 3, 2)
+    for m_value in all_m:
+        filtered = [r for r in rows if int(r["M"]) == m_value]
+        filtered.sort(key=lambda x: float(x["beta"]))
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["reward_consumption"]) for r in filtered], marker="s", lw=2, label=f"M={m_value}")
+    plt.xlabel("beta")
+    plt.ylabel("Average Reward")
+    plt.title("Reward vs beta")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Cost
+    plt.subplot(1, 3, 3)
+    for m_value in all_m:
+        filtered = [r for r in rows if int(r["M"]) == m_value]
+        filtered.sort(key=lambda x: float(x["beta"]))
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["cost_consumption"]) for r in filtered], marker="^", lw=2, label=f"M={m_value}")
+    plt.xlabel("beta")
+    plt.ylabel("Average Cost")
+    plt.title("Cost vs beta")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
@@ -230,7 +298,7 @@ def main() -> None:
             t0 = time.perf_counter()
 
             print(f"\n[JOB START] M={m_value}, beta={beta:.1f}", flush=True)
-            communication_times, accuracy, time_consumption = evaluate_for_beta(
+            communication_times, accuracy, time_consumption, energy_consumption, cost_consumption, reward_consumption = evaluate_for_beta(
                 cfg=cfg,
                 beta=float(beta),
                 rounds=args.rounds,
@@ -244,6 +312,9 @@ def main() -> None:
                 "communication_times": float(communication_times),
                 "accuracy_round_1000": float(accuracy),
                 "time_consumption": float(time_consumption),
+                "energy_consumption": float(energy_consumption),
+                "cost_consumption": float(cost_consumption),
+                "reward_consumption": float(reward_consumption),
                 "elapsed_seconds": float(elapsed),
             }
             rows.append(row)
@@ -277,18 +348,9 @@ def main() -> None:
     #     output_path=fig2_path,
     # )
 
-    # Figure 3: Time consumption vs beta
-    fig3_path = os.path.join(args.out_dir, "figure3_time_consumption.png")
-    
-    # Chỉ lấy 5 vòng FL đầu tiên để tính trung bình cho Figure 3
-    # Lưu ý: rows đã chứa avg_time_first_5 trong trường 'time_consumption' từ hàm evaluate_for_beta
-    plot_metric(
-        rows=rows,
-        metric_key="time_consumption",
-        ylabel="Average Time consumption (first 5 rounds)",
-        title="Figure 3: Average Time consumption vs beta (5 rounds)",
-        output_path=fig3_path,
-    )
+    # Figure 3: Latency, Reward, and Cost vs beta
+    fig3_path = os.path.join(args.out_dir, "figure3_latency_reward_cost.png")
+    plot_latency_reward_cost(rows, fig3_path)
 
     print("[DONE] Saved outputs:")
     print(f"- {csv_path}")
