@@ -92,10 +92,8 @@ class FLSimulator:
         if self.w_prev is None:
             global_diff_sq = 0.0
         else:
-            global_diff_sq = 0.0
-            for key in self.w_global.keys():
-                diff = self.w_global[key] - self.w_prev[key]
-                global_diff_sq += float(torch.sum(diff * diff).item())
+            diffs = [(self.w_global[k] - self.w_prev[k]).pow(2).sum() for k in self.w_global.keys()]
+            global_diff_sq = float(sum(diffs).item())
         t_global_diff = time.perf_counter() - t_global_diff_start
 
         # 2) Local train cho TẤT CẢ worker, sau đó tính ||N_m * grad_m^{t-1}||^2.
@@ -115,12 +113,9 @@ class FLSimulator:
             local_weights[worker.worker_id] = w_local
 
             N_m = self.N_m_dict[worker.worker_id]
-            grad_sq = 0.0
-            for key in self.w_global.keys():
-                grad = (w_local[key] - self.w_global[key]) / self.lr
-                scaled_grad = N_m * grad
-                grad_sq += float(torch.sum(scaled_grad * scaled_grad).item())
-            local_grad_sq_norms[worker.worker_id] = grad_sq
+            factor = N_m / self.lr
+            grad_sq_tensor = sum(((w_local[k] - self.w_global[k]) * factor).pow(2).sum() for k in self.w_global.keys())
+            local_grad_sq_norms[worker.worker_id] = float(grad_sq_tensor.item())
             worker_times.append(time.perf_counter() - t_worker_start)
 
         t_local_train = time.perf_counter() - t_local_train_start
