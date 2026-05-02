@@ -532,6 +532,7 @@ def main() -> None:
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory to save per-algorithm step logs (default: <out-dir>/logs)")
     parser.add_argument("--parallel", action="store_true", help="Run algorithms in parallel")
+    parser.add_argument("--max-parallel-workers", type=int, default=3, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -547,9 +548,10 @@ def main() -> None:
     os.makedirs(log_dir, exist_ok=True)
 
     if args.parallel and len(args.algorithms) > 1:
-        print(f"[INFO] Running {len(args.algorithms)} algorithms in parallel using ProcessPoolExecutor...")
+        max_workers = min(len(args.algorithms), args.max_parallel_workers)
+        print(f"[INFO] Running {len(args.algorithms)} algorithms in parallel using ProcessPoolExecutor with {max_workers} workers...")
         ctx = multiprocessing.get_context("spawn")
-        with concurrent.futures.ProcessPoolExecutor(max_workers=len(args.algorithms), mp_context=ctx) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = {
                 executor.submit(_run_single_algo, algo, config, args, log_dir): algo
                 for algo in args.algorithms
