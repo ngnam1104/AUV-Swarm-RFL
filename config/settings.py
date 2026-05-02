@@ -35,7 +35,7 @@ class FLConfig:
     M: int = 9                          # Số lượng AUV Follower (M = 9, 16, 25, 36, 49)
     num_epochs: int = 1                 # Số epoch local train mỗi vòng FL
     lr: float = 0.01                    # Learning Rate của thuật toán học máy (gamma)
-    batch_size: int = 64                # Batch size huấn luyện
+    batch_size: int = 256               # Batch size huấn luyện
     dataset_size: int = 42000           # Kích thước tập huấn luyện MNIST
     N_m: int = 4224                     # Số mẫu dữ liệu mỗi AUV (N_m)
     c_m: float = 10000.0                # Số chu kỳ CPU / 1 mẫu (c_m)
