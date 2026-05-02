@@ -52,9 +52,10 @@ def save_metrics_series(metrics_list: list[dict], out_csv: str) -> None:
 
 
 class EpisodeMetricsCallback(BaseCallback):
-    def __init__(self, label: str, verbose: int = 0, print_every_episode: int = 1):
+    def __init__(self, label: str, target_episodes: int, verbose: int = 0, print_every_episode: int = 1):
         super().__init__(verbose)
         self.label = label
+        self.target_episodes = target_episodes
         self.print_every_episode = max(1, int(print_every_episode))
         self.episode_metrics: list[dict] = []
 
@@ -81,6 +82,10 @@ class EpisodeMetricsCallback(BaseCallback):
                         f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
                         flush=True,
                     )
+        
+        if len(self.episode_metrics) >= self.target_episodes:
+            return False
+            
         return True
 
 
@@ -175,7 +180,7 @@ def train_ppo(
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="PPO", print_every_episode=1),
+        EpisodeMetricsCallback(label="PPO", target_episodes=episodes, print_every_episode=1),
         StepInfoCallback(
             label="PPO",
             print_every_steps=print_every_steps,
@@ -216,7 +221,7 @@ def train_ddpg(
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="DDPG", print_every_episode=1),
+        EpisodeMetricsCallback(label="DDPG", target_episodes=episodes, print_every_episode=1),
         StepInfoCallback(
             label="DDPG",
             print_every_steps=print_every_steps,
@@ -259,7 +264,7 @@ def train_sac(
     """SAC (Soft Actor-Critic) — maximum-entropy off-policy, best exploration."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="SAC", print_every_episode=1),
+        EpisodeMetricsCallback(label="SAC", target_episodes=episodes, print_every_episode=1),
         StepInfoCallback(label="SAC", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     model = SAC(
@@ -295,7 +300,7 @@ def train_td3(
     """TD3 (Twin Delayed DDPG) — fixes DDPG overestimation bias."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="TD3", print_every_episode=1),
+        EpisodeMetricsCallback(label="TD3", target_episodes=episodes, print_every_episode=1),
         StepInfoCallback(label="TD3", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     model = TD3(
@@ -332,7 +337,7 @@ def train_a2c(
     """A2C (Advantage Actor-Critic) — lightweight on-policy synchronous AC."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="A2C", print_every_episode=1),
+        EpisodeMetricsCallback(label="A2C", target_episodes=episodes, print_every_episode=1),
         StepInfoCallback(label="A2C", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     n_steps = max(2, min(int(getattr(config, "ppo_n_steps", 512)), int(config.max_fl_rounds)))

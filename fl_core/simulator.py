@@ -181,7 +181,8 @@ class FLSimulator:
             # Cập nhật Early Stopping monitor tại Leader.
             self.early_stopping(self.last_accuracy)
         accuracy = self.last_accuracy
-        is_converged = self.early_stopping.early_stop
+        enable_es = getattr(self.cfg, "enable_early_stopping", False)
+        is_converged = self.early_stopping.early_stop if enable_es else False
         t_eval = time.perf_counter() - t_eval_start
 
         t_total_step = time.perf_counter() - t_step_start

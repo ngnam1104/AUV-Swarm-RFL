@@ -97,7 +97,24 @@ run_step() {
 
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
 
+# ---------------------------------------------------------------------------
+# 5. Bước 1 — Beta Sensitivity (Figure 1-7)
+# ---------------------------------------------------------------------------
+run_step "Beta Sensitivity (Figs 1-7)" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/eval_beta_sensitivity.py \
+        --rounds 1000 \
+        --enable-early-stopping \
+        --m-values 9 16 25 \
+        --beta-start 0.1 \
+        --beta-end 0.9 \
+        --beta-step 0.1 \
+        --out-dir "$RESULTS_DIR/beta_sensitivity"
 
+# ---------------------------------------------------------------------------
+# 6. Bước 1.5 — Physical Parameter Sensitivity
+# ---------------------------------------------------------------------------
+run_step "Physical Parameter Sensitivity" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/eval_physical_params.py
 
 # ---------------------------------------------------------------------------
 # 7. Bước 2 — Train ALL 7 RL algorithms (bootstrap cho Scheme Comparison)
@@ -111,7 +128,6 @@ run_step "Train 7 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELI
         --eval-interval 5 \
         --enable-early-stopping \
         --algorithms ppo sac td3 ddpg a2c greedy random \
-        --parallel \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
         --log-dir "$LOG_DIR/fig_7_bootstrap"
@@ -123,8 +139,7 @@ run_step "Plot Figure 7 bootstrap" "$PIPELINE_LOG" \
     $PYTHON -u scripts/plot_fig_7.py \
         --input-dir "$RESULTS_DIR/fig_7" \
         --sigma 2.0 \
-        --enable-early-stopping \
-        --out-dir "$RESULTS_DIR/fig_7"
+        --out-path "$RESULTS_DIR/fig_7/figure7_bootstrap.png"
 
 # ---------------------------------------------------------------------------
 # 9. Bước 4 — Scheme Comparison & Ablation (Figure 4, 5, 6)
@@ -145,6 +160,46 @@ if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
 else
     echo "[WARN] PPO model not found at $PPO_MODEL_PATH — skipping Scheme Comparison." | tee -a "$PIPELINE_LOG"
 fi
+
+# ---------------------------------------------------------------------------
+# 10. Bước 5 — Train baselines Medium (1000 rounds, full 7 algorithms)
+# ---------------------------------------------------------------------------
+run_step "Train 7 algos Medium ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/train_baselines.py \
+        --episodes "$EPISODES" \
+        --m "$M" \
+        --max-fl-rounds 1000 \
+        --enable-early-stopping \
+        --algorithms ppo sac td3 ddpg a2c greedy random \
+        --print-every-steps 1 \
+        --out-dir "$RESULTS_DIR/fig_7_medium" \
+        --log-dir "$LOG_DIR/fig_7_medium"
+
+run_step "Plot Figure 7 medium" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/plot_fig_7.py \
+        --input-dir "$RESULTS_DIR/fig_7_medium" \
+        --sigma 2.0 \
+        --out-path "$RESULTS_DIR/fig_7_medium/figure7_medium.png"
+
+# ---------------------------------------------------------------------------
+# 11. Bước 6 — Train baselines Full (1000 rounds, giống medium nhưng out-dir khác)
+# ---------------------------------------------------------------------------
+run_step "Train 7 algos Full ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/train_baselines.py \
+        --episodes "$EPISODES" \
+        --m "$M" \
+        --max-fl-rounds 1000 \
+        --enable-early-stopping \
+        --algorithms ppo sac td3 ddpg a2c greedy random \
+        --print-every-steps 1 \
+        --out-dir "$RESULTS_DIR/fig_7_full" \
+        --log-dir "$LOG_DIR/fig_7_full"
+
+run_step "Plot Figure 7 full" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/plot_fig_7.py \
+        --input-dir "$RESULTS_DIR/fig_7_full" \
+        --sigma 2.0 \
+        --out-path "$RESULTS_DIR/fig_7_full/figure7_full.png"
 
 # ---------------------------------------------------------------------------
 # 12. Zip kết quả

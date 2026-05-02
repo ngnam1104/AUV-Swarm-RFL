@@ -57,6 +57,8 @@ def main() -> None:
     parser.add_argument("--input-dir", type=str, default="results/fig_7", help="Directory containing baseline csv files")
     parser.add_argument("--sigma", type=float, default=2.0, help="Smoothing sigma")
     parser.add_argument("--out-dir", type=str, default="results/fig_7", help="Output directory")
+    parser.add_argument("--out-path", type=str, default="", help="Deprecated, use --out-dir")
+    parser.add_argument("--enable-early-stopping", action="store_true", help="Dummy flag for compatibility")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)

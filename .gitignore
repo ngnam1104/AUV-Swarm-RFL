@@ -47,7 +47,7 @@ temp/
 
 ### Experiment logs and generated artifacts
 *.log
-results/logs/
+results
 results/**/tb/
 results/**/tensorboard/
 

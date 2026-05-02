@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import numpy as np
@@ -32,6 +33,10 @@ def build_config():
     return cfg
 
 def main():
+    parser = argparse.ArgumentParser(description="Evaluate physical parameters.")
+    parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping (dummy arg for compatibility)")
+    args = parser.parse_args()
+
     cfg = build_config()
     comm_model = CommunicationModel(cfg)
     latency_model = LatencyModel(cfg, comm_model)
