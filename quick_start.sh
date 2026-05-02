@@ -7,7 +7,7 @@
 #
 # Mặc định:
 #   WORKSPACE_ROOT = thư mục chứa script này
-#   EPISODES       = 1000
+#   EPISODES       = 800
 #   M              = 9
 # =============================================================================
 
@@ -18,7 +18,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${1:-$SCRIPT_DIR}"
-EPISODES="${2:-1000}"
+EPISODES="${2:-800}"
 M="${3:-9}"
 
 cd "$WORKSPACE_ROOT"
