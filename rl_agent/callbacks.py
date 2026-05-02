@@ -62,6 +62,7 @@ class AUVTensorboardCallback(BaseCallback):
             t_total = float(info.get("T_total", np.nan))
             e_total = float(info.get("E_total", np.nan))
             active_nodes = float(info.get("active_nodes", np.nan))
+            total_nodes = int(info.get("total_nodes", -1))
             accuracy = float(info.get("accuracy", np.nan))
             step_idx = int(info.get("step_idx", -1))
             max_steps = int(info.get("max_steps", -1))
@@ -86,7 +87,8 @@ class AUVTensorboardCallback(BaseCallback):
                     f"[FL-RL Step {self.num_timesteps}] "
                     f"ep_step={step_idx}/{max_steps} | reward={reward:.4f} | "
                     f"cost={cost:.4f} | acc_cost={accumulated_cost:.4f} | "
-                    f"active={active_nodes:.0f} | acc={accuracy:.4f} | "
+                    f"active={active_nodes:.0f}/{total_nodes} | acc={accuracy:.4f} | "
+                    f"conv={info.get('is_converged', False)} | "
                     f"T={t_total:.4f}s | E={e_total:.4f}J"
                 )
                 print(step_line, flush=True)

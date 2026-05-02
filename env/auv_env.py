@@ -199,6 +199,7 @@ class AUVSwarmEnv(gym.Env):
             "is_violated": is_violated,
             "is_converged": bool(is_converged),
             "active_nodes": int(np.sum(lambda_m)),
+            "total_nodes": int(self.M),
             "accuracy": float(accuracy),
             "timing": timing_info,
         }

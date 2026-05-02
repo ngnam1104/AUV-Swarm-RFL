@@ -147,16 +147,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 12. Zip kết quả
-# ---------------------------------------------------------------------------
-ZIP_PATH="$RESULTS_DIR/experiment_results.zip"
-echo "[INFO] Zipping results..." | tee -a "$PIPELINE_LOG"
-set +e
-zip -r "$ZIP_PATH" "$RESULTS_DIR/" --exclude "*.zip" 2>&1 | tee -a "$PIPELINE_LOG"
-set -e
-
-# ---------------------------------------------------------------------------
-# 13. Kết thúc
+# 12. Kết thúc
 # ---------------------------------------------------------------------------
 echo "" | tee -a "$PIPELINE_LOG"
 echo "==== Pipeline finished at $(date '+%Y-%m-%d %H:%M:%S') ====" | tee -a "$PIPELINE_LOG"
@@ -164,4 +155,3 @@ echo ""
 echo "Pipeline done."
 echo "  Results  : $RESULTS_DIR"
 echo "  Pipeline log: $PIPELINE_LOG"
-echo "  Zip      : $ZIP_PATH"

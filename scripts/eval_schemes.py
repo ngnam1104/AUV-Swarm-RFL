@@ -275,10 +275,14 @@ class SchemeEvaluator:
             total_reward += float(reward)
             final_accuracy = float(accuracy)
 
+            n_active = int(np.sum(lambda_m))
+            M_total = int(self.cfg.M)
+
             if rnd % 50 == 0 or rnd == self.rounds or is_converged:
                 _log(
                     f"    [{mode}] Round {rnd}/{self.rounds} "
-                    f"| beta={beta:.3f} | acc={final_accuracy:.4f} "
+                    f"| beta={beta:.3f} | active={n_active}/{M_total} "
+                    f"| acc={final_accuracy:.4f} "
                     f"| comm={communication_times:.0f} | delay={t_total:.2f}s "
                     f"| energy={e_total:.4f}J | cost={cost:.4f} | reward={reward:.4f}",
                     log_fh,
@@ -287,7 +291,8 @@ class SchemeEvaluator:
             if is_converged and self.enable_early_stopping:
                 _log(
                     f"    [{mode}] [Early Stopping] Converged at round {rnd} "
-                    f"| acc={final_accuracy:.4f} | comm={communication_times:.0f} "
+                    f"| active={n_active}/{M_total} | acc={final_accuracy:.4f} "
+                    f"| comm={communication_times:.0f} "
                     f"| delay={t_total:.2f}s | energy={e_total:.4f}J "
                     f"| cost={cost:.4f} | reward={reward:.4f} | rounds={rnd}",
                     log_fh,
