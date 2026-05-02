@@ -557,7 +557,7 @@ def main() -> None:
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory to save per-algorithm step logs (default: <out-dir>/logs)")
     parser.add_argument("--parallel", action="store_true", help="Run algorithms in parallel")
-    parser.add_argument("--max-parallel-workers", type=int, default=4, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
+    parser.add_argument("--max-parallel-workers", type=int, default=7, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
