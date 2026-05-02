@@ -180,7 +180,6 @@ def train_ppo(
         n_steps=n_steps,
         batch_size=batch_size,
         n_epochs=int(config.ppo_n_epochs),
-        device="cpu",
         verbose=1,
     )
 
@@ -334,7 +333,6 @@ def train_a2c(
         ent_coef=0.0,
         vf_coef=0.5,
         max_grad_norm=0.5,
-        device="cpu",
         verbose=1,
     )
     model.learn(total_timesteps=int(episodes * config.max_fl_rounds), callback=callback)
@@ -556,12 +554,17 @@ def main() -> None:
                 executor.submit(_run_single_algo, algo, config, args, log_dir): algo
                 for algo in args.algorithms
             }
+            has_error = False
             for fut in concurrent.futures.as_completed(futures):
                 algo = futures[fut]
                 try:
                     fut.result()
                 except Exception as e:
                     print(f"[ERROR] Algorithm {algo.upper()} failed: {e}", flush=True)
+                    has_error = True
+            
+            if has_error:
+                sys.exit(1)
     else:
         for algo in args.algorithms:
             _run_single_algo(algo, config, args, log_dir)
