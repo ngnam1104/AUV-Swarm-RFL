@@ -3,7 +3,7 @@ import csv
 import os
 import sys
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import cast
 
@@ -90,14 +90,14 @@ class StepInfoCallback(BaseCallback):
                 os.makedirs(out_dir, exist_ok=True)
             self._log_file = open(self.log_file_path, "a", encoding="utf-8")
             self._log_file.write(
-                f"=== {self.label} baseline training started at {datetime.utcnow().isoformat()} ===\n"
+                f"=== {self.label} baseline training started at {datetime.now(timezone.utc).isoformat()} ===\n"
             )
             self._log_file.flush()
 
     def _on_training_end(self) -> None:
         if self._log_file is not None:
             self._log_file.write(
-                f"=== {self.label} baseline training ended at {datetime.utcnow().isoformat()} ===\n"
+                f"=== {self.label} baseline training ended at {datetime.now(timezone.utc).isoformat()} ===\n"
             )
             self._log_file.flush()
             self._log_file.close()

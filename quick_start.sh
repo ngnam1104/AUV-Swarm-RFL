@@ -7,7 +7,7 @@
 #
 # Mặc định:
 #   WORKSPACE_ROOT = thư mục chứa script này
-#   EPISODES       = 1000
+#   EPISODES       = 2
 #   M              = 9
 # =============================================================================
 
@@ -18,7 +18,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${1:-$SCRIPT_DIR}"
-EPISODES="${2:-1000}"
+EPISODES="${2:-2}"
 M="${3:-9}"
 
 cd "$WORKSPACE_ROOT"
@@ -102,11 +102,11 @@ echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_
 # ---------------------------------------------------------------------------
 run_step "Beta Sensitivity (Figs 1-7)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/eval_beta_sensitivity.py \
-        --rounds 1000 \
+        --rounds 2 \
         --enable-early-stopping \
-        --m-values 9 16 25 \
+        --m-values 9 16 \
         --beta-start 0.1 \
-        --beta-end 0.9 \
+        --beta-end 0.2 \
         --beta-step 0.1 \
         --out-dir "$RESULTS_DIR/beta_sensitivity"
 
@@ -123,7 +123,7 @@ run_step "Physical Parameter Sensitivity" "$PIPELINE_LOG" \
 run_step "Train 7 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/train_baselines.py \
         --m "$M" \
-        --max-fl-rounds 1000 \
+        --max-fl-rounds 2 \
         --episodes "$EPISODES" \
         --eval-interval 5 \
         --enable-early-stopping \
@@ -151,8 +151,8 @@ PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model"
 if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
     run_step "Scheme Comparison (Figs 4, 5, 6)" "$PIPELINE_LOG" \
         $PYTHON -u scripts/run_fig_4_5_6.py \
-            --rounds 1000 \
-            --m-values 9 16 25 36 49 \
+            --rounds 2 \
+            --m-values 9 16 \
             --model-path "$PPO_MODEL_PATH" \
             --lag-threshold 1e4 \
             --enable-early-stopping \
@@ -160,46 +160,6 @@ if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
 else
     echo "[WARN] PPO model not found at $PPO_MODEL_PATH — skipping Scheme Comparison." | tee -a "$PIPELINE_LOG"
 fi
-
-# ---------------------------------------------------------------------------
-# 10. Bước 5 — Train baselines Medium (1000 rounds, full 7 algorithms)
-# ---------------------------------------------------------------------------
-run_step "Train 7 algos Medium ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
-    $PYTHON -u scripts/train_baselines.py \
-        --episodes "$EPISODES" \
-        --m "$M" \
-        --max-fl-rounds 1000 \
-        --enable-early-stopping \
-        --algorithms ppo sac td3 ddpg a2c greedy random \
-        --print-every-steps 1 \
-        --out-dir "$RESULTS_DIR/fig_7_medium" \
-        --log-dir "$LOG_DIR/fig_7_medium"
-
-run_step "Plot Figure 7 medium" "$PIPELINE_LOG" \
-    $PYTHON -u scripts/plot_fig_7.py \
-        --input-dir "$RESULTS_DIR/fig_7_medium" \
-        --sigma 2.0 \
-        --out-path "$RESULTS_DIR/fig_7_medium/figure7_medium.png"
-
-# ---------------------------------------------------------------------------
-# 11. Bước 6 — Train baselines Full (1000 rounds, giống medium nhưng out-dir khác)
-# ---------------------------------------------------------------------------
-run_step "Train 7 algos Full ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
-    $PYTHON -u scripts/train_baselines.py \
-        --episodes "$EPISODES" \
-        --m "$M" \
-        --max-fl-rounds 1000 \
-        --enable-early-stopping \
-        --algorithms ppo sac td3 ddpg a2c greedy random \
-        --print-every-steps 1 \
-        --out-dir "$RESULTS_DIR/fig_7_full" \
-        --log-dir "$LOG_DIR/fig_7_full"
-
-run_step "Plot Figure 7 full" "$PIPELINE_LOG" \
-    $PYTHON -u scripts/plot_fig_7.py \
-        --input-dir "$RESULTS_DIR/fig_7_full" \
-        --sigma 2.0 \
-        --out-path "$RESULTS_DIR/fig_7_full/figure7_full.png"
 
 # ---------------------------------------------------------------------------
 # 12. Zip kết quả
