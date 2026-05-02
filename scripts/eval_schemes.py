@@ -16,8 +16,16 @@ from config.settings import ACOUSTIC_CFG, FL_CFG, HW_CFG, RL_CFG
 from env.communication import CommunicationModel
 from env.energy import EnergyModel
 from env.latency import LatencyModel
+from env.reward import RewardModel
 from fl_core.control import LazyNodeController
 from fl_core.simulator import FLSimulator
+
+
+def _log(msg: str, fh=None) -> None:
+    print(msg, flush=True)
+    if fh is not None:
+        fh.write(msg + "\n")
+        fh.flush()
 
 
 class LAGController(LazyNodeController):
@@ -64,6 +72,8 @@ class SchemeEvaluator:
         lag_threshold: float = 1e4,
         beta_heuristic: str = "linear",
         force_active_rounds: int | None = None,
+        enable_early_stopping: bool = False,
+        log_dir: str | None = None,
         seed: int = 42,
     ):
         self.cfg = config
@@ -72,6 +82,8 @@ class SchemeEvaluator:
         self.lag_threshold = float(lag_threshold)
         self.beta_heuristic = beta_heuristic
         self.force_active_rounds = force_active_rounds
+        self.enable_early_stopping = bool(enable_early_stopping)
+        self.log_dir = log_dir
 
         self.rng = np.random.default_rng(seed=seed)
         self.p_min = 0.01
@@ -142,10 +154,17 @@ class SchemeEvaluator:
         return float(0.1 + 0.8 * ratio)
 
     def _run_rounds(self, mode: str) -> dict:
+        # --- mở log file riêng cho từng scheme ---
+        log_fh = None
+        if self.log_dir and str(self.log_dir).strip():
+            os.makedirs(self.log_dir, exist_ok=True)
+            log_fh = open(os.path.join(self.log_dir, f"{mode}_rounds.log"), "w", encoding="utf-8")
+
         fl_sim = FLSimulator(self.cfg)
         comm_model = CommunicationModel(self.cfg)
         latency_model = LatencyModel(self.cfg, comm_model)
         energy_model = EnergyModel(self.cfg)
+        reward_model = RewardModel(self.cfg)
 
         model = None
         if mode in {"scheme1", "scheme2"}:
@@ -188,6 +207,7 @@ class SchemeEvaluator:
         total_time_consumption = 0.0
         total_energy_consumption = 0.0
         accumulated_cost = 0.0
+        total_reward = 0.0
         final_accuracy = 0.0
 
         for rnd in range(1, self.rounds + 1):
@@ -220,7 +240,7 @@ class SchemeEvaluator:
             lambda_m = np.zeros(int(self.cfg.M), dtype=float)
             lambda_m[active_indices] = 1.0
 
-            e_total, _, t_total, _ = energy_model.compute_total_energy_from_latency(
+            e_total, energy_details, t_total, _ = energy_model.compute_total_energy_from_latency(
                 latency_model=latency_model,
                 lambda_m=lambda_m,
                 f_m=p_m * 0 + f_m,
@@ -229,21 +249,43 @@ class SchemeEvaluator:
                 p_L=p_l,
             )
 
+            E_m_array = energy_details["E_Cp_m"] + energy_details["E_C_m"]
+            E_L_val = energy_details["E_Cp_L"] + energy_details["E_C_L"]
+            reward, cost, _ = reward_model.compute_reward(
+                T_total=t_total,
+                E_total=e_total,
+                E_m=E_m_array,
+                E_L=E_L_val,
+            )
+
             communication_times += float(np.sum(lambda_m))
             total_time_consumption += float(t_total)
             total_energy_consumption += float(e_total)
-            accumulated_cost += float(t_total + e_total)
+            accumulated_cost += float(cost)
+            total_reward += float(reward)
             final_accuracy = float(accuracy)
 
             if rnd % 50 == 0 or rnd == self.rounds or is_converged:
-                print(
-                    f"    [{mode}] Round {rnd}/{self.rounds} | acc={final_accuracy:.4f} | "
-                    f"comm={communication_times:.0f} | delay={t_total:.2f}s", flush=True
+                _log(
+                    f"    [{mode}] Round {rnd}/{self.rounds} "
+                    f"| beta={beta:.3f} | acc={final_accuracy:.4f} "
+                    f"| comm={communication_times:.0f} | delay={t_total:.2f}s "
+                    f"| energy={e_total:.4f}J | cost={cost:.4f} | reward={reward:.4f}",
+                    log_fh,
                 )
 
-            if is_converged:
-                print(f"    [{mode}] [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f}", flush=True)
+            if is_converged and self.enable_early_stopping:
+                _log(
+                    f"    [{mode}] [Early Stopping] Converged at round {rnd} "
+                    f"| acc={final_accuracy:.4f} | comm={communication_times:.0f} "
+                    f"| delay={t_total:.2f}s | energy={e_total:.4f}J "
+                    f"| cost={cost:.4f} | reward={reward:.4f} | rounds={rnd}",
+                    log_fh,
+                )
                 break
+
+        if log_fh is not None:
+            log_fh.close()
 
         return {
             "scheme": mode,
@@ -253,6 +295,7 @@ class SchemeEvaluator:
             "time_consumption": float(total_time_consumption),
             "energy_consumption": float(total_energy_consumption),
             "accumulated_cost": float(accumulated_cost),
+            "total_reward": float(total_reward),
         }
 
     def run_scheme1_proposed(self) -> dict:
@@ -293,6 +336,7 @@ def save_results_csv(results: list[dict], output_csv: str) -> None:
         "time_consumption",
         "energy_consumption",
         "accumulated_cost",
+        "total_reward",
     ]
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -307,6 +351,7 @@ def main() -> None:
     parser.add_argument("--model-path", type=str, default="./models/ppo_auv_final")
     parser.add_argument("--lag-threshold", type=float, default=1e4)
     parser.add_argument("--beta-heuristic", type=str, choices=["linear", "constant"], default="linear")
+    parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping")
     parser.add_argument(
         "--scheme",
         type=str,

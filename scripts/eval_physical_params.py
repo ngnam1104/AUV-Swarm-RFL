@@ -15,6 +15,13 @@ from env.energy import EnergyModel
 from env.latency import LatencyModel
 from env.reward import RewardModel
 
+
+def _log(msg: str, fh=None) -> None:
+    print(msg, flush=True)
+    if fh is not None:
+        fh.write(msg + "\n")
+        fh.flush()
+
 def build_config():
     cfg = SimpleNamespace(
         **asdict(ACOUSTIC_CFG),
@@ -98,30 +105,74 @@ def main():
         },
     }
 
-    out_dir = "results/physical_sensitivity"
+    out_dir = os.path.join(ROOT_DIR, "results", "physical_sensitivity")
     os.makedirs(out_dir, exist_ok=True)
-    print(f"[INFO] Start sweeping physical parameters. Saving to {out_dir}")
+    log_path = os.path.join(out_dir, "sweep_detail.log")
+    log_fh = open(log_path, "w", encoding="utf-8")
+    _log(f"[INFO] Start sweeping physical parameters. Saving to {out_dir}", log_fh)
 
     for param_name, info in params_to_test.items():
         x_vals_raw = info["range"]
         x_vals_plot = x_vals_raw / info["x_scale"]
         
-        E_vals, T_vals = [], []
-        
-        for val in x_vals_raw:
+        E_vals, T_vals, Cost_raw = [], [], []
+        n_points = len(x_vals_raw)
+        print_step = max(1, n_points // 10)
+
+        for i, val in enumerate(x_vals_raw):
             args = info["default_args"](val)
-            E, T, _ = evaluate_state(*args)
+            E, T, cost_raw = evaluate_state(*args)
             E_vals.append(E)
             T_vals.append(T)
-            
+            Cost_raw.append(cost_raw)
+            if i == 0 or (i + 1) % print_step == 0 or i == n_points - 1:
+                _log(
+                    f"  [{param_name}] {i+1}/{n_points} "
+                    f"{info['label'].split(' ')[0]}={val / info['x_scale']:.3f}{info['x_unit']} "
+                    f"| E={E:.4f}J | T={T:.4f}s | cost={cost_raw:.4f}",
+                    log_fh,
+                )
+
         E_vals = np.array(E_vals)
         T_vals = np.array(T_vals)
+        Cost_raw = np.array(Cost_raw)
         
         # Min-Max Normalization để vẽ giao điểm đẹp nhất [0, 1]
-        E_norm = (E_vals - np.min(E_vals)) / (np.max(E_vals) - np.min(E_vals))
-        T_norm = (T_vals - np.min(T_vals)) / (np.max(T_vals) - np.min(T_vals))
+        dE = np.max(E_vals) - np.min(E_vals)
+        dT = np.max(T_vals) - np.min(T_vals)
+        E_norm = (E_vals - np.min(E_vals)) / (dE if dE > 0 else 1.0)
+        T_norm = (T_vals - np.min(T_vals)) / (dT if dT > 0 else 1.0)
         Cost_vals = E_norm + T_norm
+
+        # Summary tại điểm giữa
+        mid_idx = n_points // 2
+        _log(
+            f"  [{param_name}] SUMMARY: E_range=[{E_vals.min():.4f}, {E_vals.max():.4f}]J "
+            f"| T_range=[{T_vals.min():.4f}, {T_vals.max():.4f}]s "
+            f"| Cost_range=[{Cost_vals.min():.4f}, {Cost_vals.max():.4f}]",
+            log_fh,
+        )
+
+        # --- 4 đồ thị riêng biệt (Energy, Latency, Cost_norm, Cost_raw) ---
+        metrics_to_plot = [
+            ("energy",    E_vals,    "Total Energy (J)"),
+            ("latency",   T_vals,    "Total Latency (s)"),
+            ("cost_norm", Cost_vals, "Normalized Cost (E_norm + T_norm)"),
+            ("cost_raw",  Cost_raw,  "Raw Cost (reward_model)"),
+        ]
+        for suffix, ydata, ylabel in metrics_to_plot:
+            fig_path = os.path.join(out_dir, f"sensitivity_{param_name}_{suffix}.png")
+            fig, ax = plt.subplots(figsize=(7, 4))
+            ax.plot(x_vals_plot, ydata, lw=2.5, color="#1f77b4")
+            ax.set_xlabel(f'{info["label"]} [{info["x_unit"]}]', fontsize=12)
+            ax.set_ylabel(ylabel, fontsize=12)
+            ax.set_title(f"{ylabel} vs {param_name}", fontsize=13, pad=8)
+            ax.grid(True, alpha=0.3, linestyle="--")
+            fig.tight_layout()
+            fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
         
+        # Combined 3-panel plot
         plt.figure(figsize=(18, 5))
         
         # Plot 1: Total Energy
@@ -152,11 +203,14 @@ def main():
         plt.grid(True, alpha=0.3, linestyle='--')
         
         plt.tight_layout()
-        out_path = os.path.join(out_dir, f"sensitivity_{param_name}.png")
+        out_path = os.path.join(out_dir, f"sensitivity_{param_name}_combined.png")
         plt.savefig(out_path, dpi=150, bbox_inches='tight')
         plt.close()
-        
-        print(f"  -> [DONE] Generated {param_name}. Saved to: {out_path}")
+
+        _log(f"  -> [DONE] Generated {param_name} (4 individual + 1 combined). Dir: {out_dir}", log_fh)
+
+    log_fh.close()
+    print(f"[DONE] All plots and log saved to: {out_dir}")
 
 if __name__ == "__main__":
     main()

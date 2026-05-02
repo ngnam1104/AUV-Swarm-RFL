@@ -21,6 +21,14 @@ from env.reward import RewardModel
 from fl_core.simulator import FLSimulator
 
 
+def _log(msg: str, fh=None) -> None:
+    """Print to stdout and optionally write to a log file handle."""
+    print(msg, flush=True)
+    if fh is not None:
+        fh.write(msg + "\n")
+        fh.flush()
+
+
 def build_config(m_value: int, max_rounds: int, eval_interval: int) -> SimpleNamespace:
     cfg = SimpleNamespace(
         **asdict(ACOUSTIC_CFG),
@@ -39,6 +47,7 @@ def evaluate_for_beta(
     beta: float,
     rounds: int,
     enable_early_stopping: bool,
+    log_fh=None,
 ) -> tuple[float, float, float]:
     fl_sim = FLSimulator(cfg)
     comm_model = CommunicationModel(cfg)
@@ -57,10 +66,9 @@ def evaluate_for_beta(
 
     communication_times = 0.0
     total_time_consumption = 0.0
-    time_consumption_first_5 = 0.0
-    energy_consumption_first_5 = 0.0
-    cost_consumption_first_5 = 0.0
-    reward_consumption_first_5 = 0.0
+    total_energy_consumption = 0.0
+    total_cost_consumption = 0.0
+    total_reward_consumption = 0.0
     final_accuracy = 0.0
     
     total_local_train_sec = 0.0
@@ -94,36 +102,50 @@ def evaluate_for_beta(
         )
         
         if rnd == 1:
-            print(f"    [Started] beta={beta:.1f} | First round training...", flush=True)
+            _log(f"    [Started] beta={beta:.1f} | First round training...", log_fh)
 
         communication_times += float(np.sum(lambda_m))
         total_time_consumption += float(t_total)
-        if rnd <= 5:
-            time_consumption_first_5 += float(t_total)
-            energy_consumption_first_5 += float(E_total)
-            cost_consumption_first_5 += float(cost)
-            reward_consumption_first_5 += float(reward)
+        total_energy_consumption += float(E_total)
+        total_cost_consumption += float(cost)
+        total_reward_consumption += float(reward)
         final_accuracy = float(accuracy)
 
         if rnd % 5 == 0 or rnd == rounds or (enable_early_stopping and is_converged):
-            print(f"    [Round {rnd}/{rounds}] beta={beta:.1f} | acc={final_accuracy:.4f} | comm={communication_times:.0f} | delay={t_total:.2f}s", flush=True)
+            _log(
+                f"    [Round {rnd}/{rounds}] beta={beta:.1f} "
+                f"| acc={final_accuracy:.4f} | comm={communication_times:.0f} "
+                f"| delay={t_total:.2f}s | energy={E_total:.4f}J "
+                f"| cost={cost:.4f} | reward={reward:.4f}",
+                log_fh,
+            )
 
         if enable_early_stopping and is_converged:
-            print(f"    [Early Stopping] Converged at round {rnd} with acc={final_accuracy:.4f} | E={E_total:.2f}J | cost={cost:.2f}", flush=True)
+            _log(
+                f"    [Early Stopping] Converged at round {rnd} "
+                f"| acc={final_accuracy:.4f} | comm={communication_times:.0f} "
+                f"| delay={t_total:.2f}s | energy={E_total:.4f}J "
+                f"| cost={cost:.4f} | reward={reward:.4f} | rounds={rnd}",
+                log_fh,
+            )
             break
-            
-    print(f"    [Time Tracking] beta={beta:.1f} | Train mạng: {total_local_train_sec:.2f}s | Tổng hợp: {total_aggregate_sec:.2f}s", flush=True)
 
-    avg_time_first_5 = time_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    avg_energy_first_5 = energy_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    avg_cost_first_5 = cost_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    avg_reward_first_5 = reward_consumption_first_5 / min(rounds, 5) if rounds > 0 else 0.0
-    return communication_times, final_accuracy, avg_time_first_5, avg_energy_first_5, avg_cost_first_5, avg_reward_first_5, rnd
+    _log(f"    [Time Tracking] beta={beta:.1f} | Train mạng: {total_local_train_sec:.2f}s | Tổng hợp: {total_aggregate_sec:.2f}s", log_fh)
+
+    avg_time = total_time_consumption / rnd if rnd > 0 else 0.0
+    avg_energy = total_energy_consumption / rnd if rnd > 0 else 0.0
+    avg_cost = total_cost_consumption / rnd if rnd > 0 else 0.0
+    avg_reward = total_reward_consumption / rnd if rnd > 0 else 0.0
+    return communication_times, final_accuracy, avg_time, avg_energy, avg_cost, avg_reward, rnd
 
 
 def save_csv(rows: list[dict], output_csv: str) -> None:
     if not rows:
         return
+
+    out_dir = os.path.dirname(output_csv)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     fieldnames = [
         "M",
@@ -284,6 +306,8 @@ def main() -> None:
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
+    log_path = os.path.join(args.out_dir, "run_detail.log")
+    log_fh = open(log_path, "w", encoding="utf-8")
 
     betas = np.round(
         np.arange(args.beta_start, args.beta_end + 1e-9, args.beta_step),
@@ -294,9 +318,9 @@ def main() -> None:
     total_jobs = len(args.m_values) * len(betas)
     job_idx = 0
 
-    print("[INFO] Start beta sensitivity evaluation")
-    print(f"[INFO] rounds={args.rounds}, m_values={args.m_values}, betas={betas.tolist()}")
-    print(f"[INFO] early_stopping={'ON' if args.enable_early_stopping else 'OFF (fixed rounds)'}")
+    _log("[INFO] Start beta sensitivity evaluation", log_fh)
+    _log(f"[INFO] rounds={args.rounds}, m_values={args.m_values}, betas={betas.tolist()}", log_fh)
+    _log(f"[INFO] early_stopping={'ON' if args.enable_early_stopping else 'OFF (fixed rounds)'}", log_fh)
     print_input_warnings(rounds=int(args.rounds), betas=betas, m_values=[int(m) for m in args.m_values])
 
     for m_value in args.m_values:
@@ -306,12 +330,13 @@ def main() -> None:
             job_idx += 1
             t0 = time.perf_counter()
 
-            print(f"\n[JOB START] M={m_value}, beta={beta:.1f}", flush=True)
+            _log(f"\n[JOB START] M={m_value}, beta={beta:.1f}", log_fh)
             communication_times, accuracy, time_consumption, energy_consumption, cost_consumption, reward_consumption, converged_round = evaluate_for_beta(
                 cfg=cfg,
                 beta=float(beta),
                 rounds=args.rounds,
                 enable_early_stopping=bool(args.enable_early_stopping),
+                log_fh=log_fh,
             )
 
             elapsed = time.perf_counter() - t0
@@ -329,53 +354,45 @@ def main() -> None:
             }
             rows.append(row)
 
-            print(
-                f"[PROGRESS {job_idx}/{total_jobs}] M={m_value}, beta={beta:.1f} | "
-                f"comm={communication_times:.1f}, acc={accuracy:.4f}, T_total={time_consumption:.2f}, converged_round={converged_round}, elapsed={elapsed:.2f}s"
+            _log(
+                f"[PROGRESS {job_idx}/{total_jobs}] M={m_value}, beta={beta:.1f} "
+                f"| acc={accuracy:.4f} | comm={communication_times:.1f} "
+                f"| delay={time_consumption:.2f}s | energy={energy_consumption:.4f}J "
+                f"| cost={cost_consumption:.4f} | reward={reward_consumption:.4f} "
+                f"| rounds={converged_round} | elapsed={elapsed:.2f}s",
+                log_fh,
             )
+
+    log_fh.close()
 
     csv_path = os.path.join(args.out_dir, "beta_sensitivity_results.csv")
     save_csv(rows, csv_path)
     print_output_diagnostics(rows)
 
-    # Figure 1: Communication times vs beta
-    # fig1_path = os.path.join(args.out_dir, "figure1_communication_times.png")
-    # plot_metric(
-    #     rows=rows,
-    #     metric_key="communication_times",
-    #     ylabel="Communication times",
-    #     title="Figure 1: Communication times vs beta",
-    #     output_path=fig1_path,
-    # )
+    # --- 7 đồ thị riêng biệt theo từng chỉ số ---
+    plots = [
+        ("fig1_communication_times.png", "communication_times",  "Communication Times",    "Fig 1: Communication Times vs beta"),
+        ("fig2_accuracy.png",            "accuracy_round_1000",   "Accuracy",               "Fig 2: Accuracy vs beta"),
+        ("fig3_delay.png",               "time_consumption",      "Avg Delay (s)",          "Fig 3: Avg Delay vs beta"),
+        ("fig4_energy.png",              "energy_consumption",    "Avg Energy (J)",         "Fig 4: Avg Energy vs beta"),
+        ("fig5_cost.png",                "cost_consumption",      "Avg Cost",               "Fig 5: Avg Cost vs beta"),
+        ("fig6_reward.png",              "reward_consumption",    "Avg Reward",             "Fig 6: Avg Reward vs beta"),
+        ("fig7_converged_round.png",     "converged_round",       "Converged Round",        "Fig 7: Converged Round vs beta"),
+    ]
+    saved_paths = [csv_path, log_path]
+    for fname, key, ylabel, title in plots:
+        out_path = os.path.join(args.out_dir, fname)
+        plot_metric(rows=rows, metric_key=key, ylabel=ylabel, title=title, output_path=out_path)
+        saved_paths.append(out_path)
 
-    # Figure 2: Accuracy vs beta
-    # fig2_path = os.path.join(args.out_dir, "figure2_accuracy.png")
-    # plot_metric(
-    #     rows=rows,
-    #     metric_key="accuracy_round_1000",
-    #     ylabel="Accuracy",
-    #     title="Figure 2: Accuracy at round 1000 vs beta",
-    #     output_path=fig2_path,
-    # )
-
-    # Figure 3: Latency, Reward, and Cost vs beta
-    fig3_path = os.path.join(args.out_dir, "figure3_latency_reward_cost.png")
-    plot_latency_reward_cost(rows, fig3_path)
-
-    # Figure 4: Converged Round vs beta
-    fig4_path = os.path.join(args.out_dir, "figure4_converged_round.png")
-    plot_metric(
-        rows=rows,
-        metric_key="converged_round",
-        ylabel="Converged Round",
-        title="Figure 4: Converged Round vs beta",
-        output_path=fig4_path,
-    )
+    # Combined figure (latency + reward + cost)
+    fig_combined = os.path.join(args.out_dir, "fig_combined_latency_reward_cost.png")
+    plot_latency_reward_cost(rows, fig_combined)
+    saved_paths.append(fig_combined)
 
     print("[DONE] Saved outputs:")
-    print(f"- {csv_path}")
-    print(f"- {fig3_path}")
-    print(f"- {fig4_path}")
+    for p in saved_paths:
+        print(f"  - {p}")
 
 if __name__ == "__main__":
     main()

@@ -34,6 +34,8 @@ def run_experiment(
     model_path: str,
     lag_threshold: float,
     beta_heuristic: str,
+    enable_early_stopping: bool = False,
+    log_dir: str | None = None,
 ) -> List[Dict]:
     all_rows: List[Dict] = []
 
@@ -48,6 +50,8 @@ def run_experiment(
             model_path=model_path,
             lag_threshold=lag_threshold,
             beta_heuristic=beta_heuristic,
+            enable_early_stopping=enable_early_stopping,
+            log_dir=os.path.join(log_dir, f"M{m}") if log_dir else None,
         )
 
         print(f"[INFO] Running all schemes for M={m}")
@@ -59,9 +63,12 @@ def run_experiment(
             row_out["M"] = int(m)
             all_rows.append(row_out)
             print(
-                f"[PROGRESS {done_jobs}/{total_jobs}] M={m}, {row_out['scheme']} | "
-                f"comm={row_out['communication_times']:.1f}, acc={row_out['accuracy']:.4f}, "
-                f"energy={row_out['energy_consumption']:.2f}"
+                f"[PROGRESS {done_jobs}/{total_jobs}] M={m}, {row_out['scheme']} "
+                f"| comm={row_out['communication_times']:.1f} | acc={row_out['accuracy']:.4f} "
+                f"| delay_total={row_out['time_consumption']:.2f}s "
+                f"| energy={row_out['energy_consumption']:.4f}J "
+                f"| cost={row_out['accumulated_cost']:.4f} | reward={row_out['total_reward']:.4f} "
+                f"| rounds={row_out['rounds']}"
             )
 
     return all_rows
@@ -72,6 +79,8 @@ def run_fig5_experiment(
     rounds: int,
     model_path: str,
     beta_heuristic: str,
+    enable_early_stopping: bool = False,
+    log_dir: str | None = None,
 ) -> List[Dict]:
     """Runs ablation study for Figure 5 (Control Model Accuracy)."""
     all_rows: List[Dict] = []
@@ -99,7 +108,9 @@ def run_fig5_experiment(
                 rounds=rounds,
                 model_path=model_path,
                 beta_heuristic=beta_heuristic,
-                force_active_rounds=tau
+                enable_early_stopping=enable_early_stopping,
+                force_active_rounds=tau,
+                log_dir=os.path.join(log_dir, f"M{m}_fig5") if log_dir else None,
             )
             
             # Run specific scheme
@@ -112,10 +123,13 @@ def run_fig5_experiment(
             res["M"] = int(m)
             res["fig5_label"] = label
             all_rows.append(res)
-            
+
             print(
-                f"[PROGRESS FIG5 {done_jobs}/{total_jobs}] M={m}, {label} | "
-                f"acc={res['accuracy']:.4f}"
+                f"[PROGRESS FIG5 {done_jobs}/{total_jobs}] M={m}, {label} "
+                f"| acc={res['accuracy']:.4f} | delay_total={res['time_consumption']:.2f}s "
+                f"| energy={res['energy_consumption']:.4f}J "
+                f"| cost={res['accumulated_cost']:.4f} | reward={res['total_reward']:.4f} "
+                f"| rounds={res['rounds']}"
             )
             
     return all_rows
@@ -210,6 +224,7 @@ def main() -> None:
         default="linear",
         help="Fallback beta schedule for Scheme 2 if PPO model is missing",
     )
+    parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in scheme runs")
     parser.add_argument("--out-dir", type=str, default="results/eval_schemes", help="Output directory")
     args = parser.parse_args()
 
@@ -221,6 +236,8 @@ def main() -> None:
         model_path=args.model_path,
         lag_threshold=float(args.lag_threshold),
         beta_heuristic=args.beta_heuristic,
+        enable_early_stopping=bool(args.enable_early_stopping),
+        log_dir=os.path.join(args.out_dir, "scheme_logs"),
     )
 
     results_csv = os.path.join(args.out_dir, "scheme_results.csv")
@@ -232,56 +249,49 @@ def main() -> None:
         rounds=int(args.rounds),
         model_path=args.model_path,
         beta_heuristic=args.beta_heuristic,
+        enable_early_stopping=bool(args.enable_early_stopping),
+        log_dir=os.path.join(args.out_dir, "scheme_logs"),
     )
-    
+
     fig5_csv = os.path.join(args.out_dir, "fig5_results.csv")
     save_results_csv(fig5_rows, fig5_csv)
 
     print("\n[INFO] Generating Plots...")
-    fig4a_path = os.path.join(args.out_dir, "figure4a_communication_times.png")
-    plot_by_scheme(
-        rows=rows,
-        m_values=[int(m) for m in args.m_values],
-        metric_key="communication_times",
-        ylabel="Communication times",
-        title="Figure 4(a): Communication times vs Number of AUVs",
-        output_path=fig4a_path,
-    )
 
-    fig4b_path = os.path.join(args.out_dir, "figure4b_accuracy.png")
-    plot_by_scheme(
-        rows=rows,
-        m_values=[int(m) for m in args.m_values],
-        metric_key="accuracy",
-        ylabel="Accuracy",
-        title="Figure 4(b): Accuracy vs Number of AUVs",
-        output_path=fig4b_path,
-    )
-    
+    # --- 7 đồ thị so sánh scheme theo từng chỉ số ---
+    scheme_plots = [
+        ("figure4a_communication_times.png", "communication_times", "Communication Times",  "Fig 4(a): Comm Times vs M"),
+        ("figure4b_accuracy.png",            "accuracy",            "Accuracy",              "Fig 4(b): Accuracy vs M"),
+        ("figure_delay.png",                 "time_consumption",    "Total Delay (s)",       "Total Delay vs M"),
+        ("figure_energy.png",                "energy_consumption",  "Total Energy (J)",      "Total Energy vs M"),
+        ("figure6_cost.png",                 "accumulated_cost",    "Accumulated Cost",      "Fig 6: Accumulated Cost vs M"),
+        ("figure_reward.png",                "total_reward",        "Total Reward",          "Total Reward vs M"),
+        ("figure_converged_round.png",       "rounds",              "Converged Round",       "Converged Round vs M"),
+    ]
+    saved_paths = [results_csv, fig5_csv]
+    for fname, key, ylabel, title in scheme_plots:
+        out_path = os.path.join(args.out_dir, fname)
+        plot_by_scheme(
+            rows=rows,
+            m_values=[int(m) for m in args.m_values],
+            metric_key=key,
+            ylabel=ylabel,
+            title=title,
+            output_path=out_path,
+        )
+        saved_paths.append(out_path)
+
     fig5_path = os.path.join(args.out_dir, "figure5_control_models.png")
     plot_fig5(
         rows=fig5_rows,
         m_values=[int(m) for m in args.m_values],
         output_path=fig5_path,
     )
-
-    fig6_path = os.path.join(args.out_dir, "figure6_cost.png")
-    plot_by_scheme(
-        rows=rows,
-        m_values=[int(m) for m in args.m_values],
-        metric_key="accumulated_cost",
-        ylabel="Accumulated Cost",
-        title="Figure 6: Cost vs Number of AUVs",
-        output_path=fig6_path,
-    )
+    saved_paths.append(fig5_path)
 
     print("[DONE] Saved outputs:")
-    print(f"- {results_csv}")
-    print(f"- {fig5_csv}")
-    print(f"- {fig4a_path}")
-    print(f"- {fig4b_path}")
-    print(f"- {fig5_path}")
-    print(f"- {fig6_path}")
+    for p in saved_paths:
+        print(f"  - {p}")
 
 
 if __name__ == "__main__":

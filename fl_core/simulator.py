@@ -1,6 +1,6 @@
-import copy
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import torch
@@ -18,7 +18,9 @@ class FLSimulator:
     """Quản lý tiến trình học. Tích hợp LazyNodeController."""
     def __init__(self, config):
         cpu_threads = os.cpu_count() or 1
-        torch.set_num_threads(cpu_threads)
+        # Giới hạn intra-op threads của PyTorch để tránh over-subscribe khi dùng ThreadPoolExecutor
+        torch.set_num_threads(max(1, cpu_threads // 2))
+        self._n_workers_parallel = min(cpu_threads, 8)  # số thread chạy song song local_train
 
         self.cfg = config
         self.M = int(getattr(config, "M", 9))
@@ -87,36 +89,55 @@ class FLSimulator:
         """
         t_step_start = time.perf_counter()
 
-        # 1) Tính ||w(t-1) - w(t-2)||^2. Nếu chưa đủ lịch sử (t < 2) thì đặt 0.0.
+        # 1) Tính ||w(t-1) - w(t-2)||^2 bằng stacked tensor (nhanh hơn Python sum).
         t_global_diff_start = time.perf_counter()
         if self.w_prev is None:
             global_diff_sq = 0.0
         else:
-            diffs = [(self.w_global[k] - self.w_prev[k]).pow(2).sum() for k in self.w_global.keys()]
-            global_diff_sq = float(sum(diffs).item())
+            stacked_new = torch.cat([v.flatten() for v in self.w_global.values()])
+            stacked_old = torch.cat([v.flatten() for v in self.w_prev.values()])
+            global_diff_sq = float(((stacked_new - stacked_old) ** 2).sum().item())
         t_global_diff = time.perf_counter() - t_global_diff_start
 
-        # 2) Local train cho TẤT CẢ worker, sau đó tính ||N_m * grad_m^{t-1}||^2.
+        # 2) Local train song song cho TẤT CẢ workers bằng ThreadPoolExecutor.
         t_local_train_start = time.perf_counter()
-        local_weights = {}
-        local_grad_sq_norms = {}
-        worker_times = []
+        local_weights: dict[int, dict] = {}
+        local_grad_sq_norms: dict[int, float] = {}
+        worker_times: list[float] = []
 
-        for worker in self.workers:
-            t_worker_start = time.perf_counter()
+        # Stacked global params một lần để tính grad norm nhanh
+        stacked_global = torch.cat([v.flatten() for v in self.w_global.values()])
+        N_m_values = torch.tensor(
+            [self.N_m_dict[w.worker_id] for w in self.workers],
+            dtype=torch.float32, device=stacked_global.device
+        )
+
+        def _train_one(worker):
+            t_w = time.perf_counter()
             w_local, _ = worker.local_train(
                 global_params=self.w_global,
                 num_epochs=self.num_epochs,
                 lr=self.lr,
                 batch_size=self.batch_size,
             )
-            local_weights[worker.worker_id] = w_local
+            elapsed = time.perf_counter() - t_w
+            return worker.worker_id, w_local, elapsed
 
-            N_m = self.N_m_dict[worker.worker_id]
-            factor = N_m / self.lr
-            grad_sq_tensor = sum(((w_local[k] - self.w_global[k]) * factor).pow(2).sum() for k in self.w_global.keys())
-            local_grad_sq_norms[worker.worker_id] = float(grad_sq_tensor.item())
-            worker_times.append(time.perf_counter() - t_worker_start)
+        with ThreadPoolExecutor(max_workers=self._n_workers_parallel) as pool:
+            futures = {pool.submit(_train_one, w): w for w in self.workers}
+            for fut in as_completed(futures):
+                wid, w_local, elapsed = fut.result()
+                local_weights[wid] = w_local
+                worker_times.append(elapsed)
+
+        # Tính grad norms trên GPU sau khi tất cả workers xong
+        for worker in self.workers:
+            wid = worker.worker_id
+            w_local = local_weights[wid]
+            N_m = self.N_m_dict[wid]
+            stacked_local = torch.cat([v.flatten() for v in w_local.values()])
+            grad_sq = float(((stacked_local - stacked_global) * (N_m / self.lr)).pow(2).sum().item())
+            local_grad_sq_norms[wid] = grad_sq
 
         t_local_train = time.perf_counter() - t_local_train_start
 
@@ -145,10 +166,10 @@ class FLSimulator:
         new_w_global = self.aggregator.update_and_aggregate(active_weights_dict)
         t_agg = time.perf_counter() - t_agg_start
 
-        # 7) Lưu lịch sử global model cho vòng sau.
+        # 7) Lưu lịch sử global model cho vòng sau — dùng clone thay vì deepcopy.
         t_model_update_start = time.perf_counter()
-        self.w_prev = copy.deepcopy(self.w_global)
-        self.w_global = copy.deepcopy(new_w_global)
+        self.w_prev = {k: v.clone() for k, v in self.w_global.items()}
+        self.w_global = {k: v.clone() for k, v in new_w_global.items()}
         ModelUtils.set_params(self.global_model, self.w_global)
         t_model_update = time.perf_counter() - t_model_update_start
 

@@ -18,9 +18,12 @@ except Exception:
 
 SERIES_FILES = {
     "PPO (Proposed)": "ppo_accumulated_cost.csv",
-    "DDPG": "ddpg_accumulated_cost.csv",
-    "Greedy": "greedy_accumulated_cost.csv",
-    "Random": "random_accumulated_cost.csv",
+    "SAC":            "sac_accumulated_cost.csv",
+    "TD3":            "td3_accumulated_cost.csv",
+    "DDPG":           "ddpg_accumulated_cost.csv",
+    "A2C":            "a2c_accumulated_cost.csv",
+    "Greedy":         "greedy_accumulated_cost.csv",
+    "Random":         "random_accumulated_cost.csv",
 }
 
 
