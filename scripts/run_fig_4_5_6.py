@@ -260,13 +260,13 @@ def main() -> None:
 
     # --- 7 đồ thị so sánh scheme theo từng chỉ số ---
     scheme_plots = [
-        ("figure4a_communication_times.png", "communication_times", "Communication Times",  "Fig 4(a): Comm Times vs M"),
-        ("figure4b_accuracy.png",            "accuracy",            "Accuracy",              "Fig 4(b): Accuracy vs M"),
-        ("figure_delay.png",                 "time_consumption",    "Total Delay (s)",       "Total Delay vs M"),
-        ("figure_energy.png",                "energy_consumption",  "Total Energy (J)",      "Total Energy vs M"),
-        ("figure6_cost.png",                 "accumulated_cost",    "Accumulated Cost",      "Fig 6: Accumulated Cost vs M"),
-        ("figure_reward.png",                "total_reward",        "Total Reward",          "Total Reward vs M"),
-        ("figure_converged_round.png",       "rounds",              "Converged Round",       "Converged Round vs M"),
+        ("figure4a_avg_communication_times.png", "avg_communication_times", "Average Communication Times", "Fig 4(a): Average Comm Times vs M"),
+        ("figure4b_accuracy.png",                "accuracy",                "Accuracy",                    "Fig 4(b): Accuracy vs M"),
+        ("figure_avg_delay.png",                 "avg_delay",               "Average Delay (s)",           "Average Delay vs M"),
+        ("figure_avg_energy.png",                "avg_energy",              "Average Energy (J)",          "Average Energy vs M"),
+        ("figure6_cost.png",                     "accumulated_cost",        "Accumulated Cost",            "Fig 6: Accumulated Cost vs M"),
+        ("figure_avg_reward.png",                "avg_reward",              "Average Reward",              "Average Reward vs M"),
+        ("figure_converged_round.png",           "rounds",                  "Converged Round",             "Converged Round vs M"),
     ]
     saved_paths = [results_csv, fig5_csv]
     for fname, key, ylabel, title in scheme_plots:

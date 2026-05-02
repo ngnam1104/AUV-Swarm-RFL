@@ -37,23 +37,26 @@ def build_config(m_value: int, max_fl_rounds: int, eval_interval: int = 10) -> S
     return cfg
 
 
-def save_cost_series(costs: list[float], out_csv: str) -> None:
+def save_metrics_series(metrics_list: list[dict], out_csv: str) -> None:
     out_dir = os.path.dirname(out_csv)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
+    if not metrics_list: return
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["episode", "accumulated_cost"])
-        for ep_idx, value in enumerate(costs):
-            writer.writerow([ep_idx, float(value)])
+        writer = csv.DictWriter(f, fieldnames=["episode"] + list(metrics_list[0].keys()))
+        writer.writeheader()
+        for ep_idx, metrics in enumerate(metrics_list):
+            row = {"episode": ep_idx}
+            row.update(metrics)
+            writer.writerow(row)
 
 
-class EpisodeCostCallback(BaseCallback):
+class EpisodeMetricsCallback(BaseCallback):
     def __init__(self, label: str, verbose: int = 0, print_every_episode: int = 1):
         super().__init__(verbose)
         self.label = label
         self.print_every_episode = max(1, int(print_every_episode))
-        self.episode_costs: list[float] = []
+        self.episode_metrics: list[dict] = []
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -61,11 +64,21 @@ class EpisodeCostCallback(BaseCallback):
 
         for idx, done in enumerate(dones):
             if bool(done) and idx < len(infos) and isinstance(infos[idx], dict):
-                acc_cost = float(infos[idx].get("accumulated_cost", np.nan))
-                self.episode_costs.append(acc_cost)
-                if len(self.episode_costs) % self.print_every_episode == 0:
+                info = infos[idx]
+                step_idx = max(1, info.get("step_idx", 1))
+                metrics = {
+                    "accumulated_cost": float(info.get("accumulated_cost", np.nan)),
+                    "avg_delay": float(info.get("accumulated_delay", 0.0)) / step_idx,
+                    "avg_energy": float(info.get("accumulated_energy", 0.0)) / step_idx,
+                    "avg_reward": float(info.get("accumulated_reward", 0.0)) / step_idx,
+                    "avg_comm": float(info.get("accumulated_comm", 0.0)) / step_idx,
+                }
+                self.episode_metrics.append(metrics)
+                if len(self.episode_metrics) % self.print_every_episode == 0:
                     print(
-                        f"[{self.label}] Episode {len(self.episode_costs)} | accumulated_cost={acc_cost:.4f}",
+                        f"[{self.label}] Episode {len(self.episode_metrics)} | "
+                        f"cost={metrics['accumulated_cost']:.4f} | avg_delay={metrics['avg_delay']:.4f}s | "
+                        f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
                         flush=True,
                     )
         return True
@@ -162,7 +175,7 @@ def train_ppo(
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeCostCallback(label="PPO", print_every_episode=1),
+        EpisodeMetricsCallback(label="PPO", print_every_episode=1),
         StepInfoCallback(
             label="PPO",
             print_every_steps=print_every_steps,
@@ -191,7 +204,7 @@ def train_ppo(
         model.save(model_out)
 
     vec_env.close()
-    return callback[0].episode_costs
+    return callback[0].episode_metrics
 
 
 def train_ddpg(
@@ -203,7 +216,7 @@ def train_ddpg(
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeCostCallback(label="DDPG", print_every_episode=1),
+        EpisodeMetricsCallback(label="DDPG", print_every_episode=1),
         StepInfoCallback(
             label="DDPG",
             print_every_steps=print_every_steps,
@@ -233,7 +246,7 @@ def train_ddpg(
         model.save(model_out)
 
     vec_env.close()
-    return callback[0].episode_costs
+    return callback[0].episode_metrics
 
 
 def train_sac(
@@ -246,7 +259,7 @@ def train_sac(
     """SAC (Soft Actor-Critic) — maximum-entropy off-policy, best exploration."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeCostCallback(label="SAC", print_every_episode=1),
+        EpisodeMetricsCallback(label="SAC", print_every_episode=1),
         StepInfoCallback(label="SAC", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     model = SAC(
@@ -269,7 +282,7 @@ def train_sac(
         os.makedirs(os.path.dirname(model_out) or ".", exist_ok=True)
         model.save(model_out)
     vec_env.close()
-    return callback[0].episode_costs
+    return callback[0].episode_metrics
 
 
 def train_td3(
@@ -282,7 +295,7 @@ def train_td3(
     """TD3 (Twin Delayed DDPG) — fixes DDPG overestimation bias."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeCostCallback(label="TD3", print_every_episode=1),
+        EpisodeMetricsCallback(label="TD3", print_every_episode=1),
         StepInfoCallback(label="TD3", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     model = TD3(
@@ -306,7 +319,7 @@ def train_td3(
         os.makedirs(os.path.dirname(model_out) or ".", exist_ok=True)
         model.save(model_out)
     vec_env.close()
-    return callback[0].episode_costs
+    return callback[0].episode_metrics
 
 
 def train_a2c(
@@ -319,7 +332,7 @@ def train_a2c(
     """A2C (Advantage Actor-Critic) — lightweight on-policy synchronous AC."""
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeCostCallback(label="A2C", print_every_episode=1),
+        EpisodeMetricsCallback(label="A2C", print_every_episode=1),
         StepInfoCallback(label="A2C", print_every_steps=print_every_steps, log_file_path=step_log_file),
     ]
     n_steps = max(2, min(int(getattr(config, "ppo_n_steps", 512)), int(config.max_fl_rounds)))
@@ -340,7 +353,7 @@ def train_a2c(
         os.makedirs(os.path.dirname(model_out) or ".", exist_ok=True)
         model.save(model_out)
     vec_env.close()
-    return callback[0].episode_costs
+    return callback[0].episode_metrics
 
 
 def encode_action(env: AUVSwarmEnv, p_value: float, f_value: float, beta: float) -> np.ndarray:
@@ -400,7 +413,7 @@ def run_policy_free_baseline(
 ) -> list[float]:
     env = make_env(config)
     base_env = cast(AUVSwarmEnv, env.env)
-    costs: list[float] = []
+    metrics_list: list[dict] = []
     log_fh = None
     if log_file_path:
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
@@ -426,14 +439,21 @@ def run_policy_free_baseline(
             done = bool(terminated or truncated)
             last_info = info
 
-        costs.append(float(last_info.get("accumulated_cost", np.nan)))
+        step_idx = max(1, last_info.get("step_idx", 1))
+        metrics = {
+            "accumulated_cost": float(last_info.get("accumulated_cost", np.nan)),
+            "avg_delay": float(last_info.get("accumulated_delay", 0.0)) / step_idx,
+            "avg_energy": float(last_info.get("accumulated_energy", 0.0)) / step_idx,
+            "avg_reward": float(last_info.get("accumulated_reward", 0.0)) / step_idx,
+            "avg_comm": float(last_info.get("accumulated_comm", 0.0)) / step_idx,
+        }
+        metrics_list.append(metrics)
         if (ep + 1) % 10 == 0 or ep == 0:
             line = (
                 f"[{mode.upper()}] Episode {ep + 1}/{episodes} "
-                f"| accumulated_cost={costs[-1]:.4f} "
-                f"| acc={float(last_info.get('accuracy', float('nan'))):.4f} "
-                f"| T_total={float(last_info.get('T_total', float('nan'))):.4f}s "
-                f"| E_total={float(last_info.get('E_total', float('nan'))):.4f}J"
+                f"| accumulated_cost={metrics['accumulated_cost']:.4f} "
+                f"| avg_delay={metrics['avg_delay']:.4f}s "
+                f"| avg_energy={metrics['avg_energy']:.4f}J"
             )
             print(line, flush=True)
             if log_fh is not None:
@@ -445,63 +465,63 @@ def run_policy_free_baseline(
         log_fh.close()
 
     env.close()
-    return costs
+    return metrics_list
 
 
 def _run_single_algo(algo: str, config: SimpleNamespace, args, log_dir: str):
     print(f"[START] Training {algo.upper()} ...", flush=True)
     if algo == "ppo":
-        costs = train_ppo(
+        metrics_list = train_ppo(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "ppo_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "ppo_steps.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "ppo_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "ppo_metrics.csv"))
     elif algo == "sac":
-        costs = train_sac(
+        metrics_list = train_sac(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "sac_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "sac_steps.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "sac_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "sac_metrics.csv"))
     elif algo == "td3":
-        costs = train_td3(
+        metrics_list = train_td3(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "td3_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "td3_steps.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "td3_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "td3_metrics.csv"))
     elif algo == "ddpg":
-        costs = train_ddpg(
+        metrics_list = train_ddpg(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "ddpg_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "ddpg_steps.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "ddpg_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "ddpg_metrics.csv"))
     elif algo == "a2c":
-        costs = train_a2c(
+        metrics_list = train_a2c(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "a2c_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "a2c_steps.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "a2c_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "a2c_metrics.csv"))
     elif algo == "greedy":
-        costs = run_policy_free_baseline(
+        metrics_list = run_policy_free_baseline(
             config=config, episodes=args.episodes, mode="greedy",
             log_file_path=os.path.join(log_dir, "greedy_episodes.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "greedy_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "greedy_metrics.csv"))
     elif algo == "random":
-        costs = run_policy_free_baseline(
+        metrics_list = run_policy_free_baseline(
             config=config, episodes=args.episodes, mode="random",
             log_file_path=os.path.join(log_dir, "random_episodes.log"),
         )
-        save_cost_series(costs, os.path.join(args.out_dir, "random_accumulated_cost.csv"))
+        save_metrics_series(metrics_list, os.path.join(args.out_dir, "random_metrics.csv"))
     
     print(f"[DONE] Training {algo.upper()}.", flush=True)
     return algo
@@ -532,7 +552,7 @@ def main() -> None:
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory to save per-algorithm step logs (default: <out-dir>/logs)")
     parser.add_argument("--parallel", action="store_true", help="Run algorithms in parallel")
-    parser.add_argument("--max-parallel-workers", type=int, default=3, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
+    parser.add_argument("--max-parallel-workers", type=int, default=4, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)

@@ -59,6 +59,10 @@ class AUVSwarmEnv(gym.Env):
         super().reset(seed=seed)
         self.step_idx = 0
         self.accumulated_cost = 0.0
+        self.accumulated_delay = 0.0
+        self.accumulated_energy = 0.0
+        self.accumulated_reward = 0.0
+        self.accumulated_comm = 0
         
         # Reset FL Simulator (Nếu có)
         if self.fl_sim:
@@ -165,6 +169,10 @@ class AUVSwarmEnv(gym.Env):
         )
 
         self.accumulated_cost += float(cost)
+        self.accumulated_delay += float(T_total)
+        self.accumulated_energy += float(E_total)
+        self.accumulated_reward += float(reward)
+        self.accumulated_comm += int(np.sum(lambda_m))
 
         # 5. Check Termination: hết rounds HOẶC hội tụ sớm.
         terminated = bool(self.step_idx >= self.max_steps or is_converged)
@@ -184,6 +192,10 @@ class AUVSwarmEnv(gym.Env):
             "E_total": E_total,
             "cost": cost,
             "accumulated_cost": float(self.accumulated_cost),
+            "accumulated_delay": float(self.accumulated_delay),
+            "accumulated_energy": float(self.accumulated_energy),
+            "accumulated_reward": float(self.accumulated_reward),
+            "accumulated_comm": int(self.accumulated_comm),
             "is_violated": is_violated,
             "is_converged": bool(is_converged),
             "active_nodes": int(np.sum(lambda_m)),

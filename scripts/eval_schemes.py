@@ -301,11 +301,15 @@ class SchemeEvaluator:
             "scheme": mode,
             "rounds": int(rnd),
             "communication_times": float(communication_times),
+            "avg_communication_times": float(communication_times / rnd) if rnd > 0 else 0.0,
             "accuracy": float(final_accuracy),
             "time_consumption": float(total_time_consumption),
+            "avg_delay": float(total_time_consumption / rnd) if rnd > 0 else 0.0,
             "energy_consumption": float(total_energy_consumption),
+            "avg_energy": float(total_energy_consumption / rnd) if rnd > 0 else 0.0,
             "accumulated_cost": float(accumulated_cost),
             "total_reward": float(total_reward),
+            "avg_reward": float(total_reward / rnd) if rnd > 0 else 0.0,
         }
 
     def run_scheme1_proposed(self) -> dict:
@@ -342,11 +346,15 @@ def save_results_csv(results: list[dict], output_csv: str) -> None:
         "scheme",
         "rounds",
         "communication_times",
+        "avg_communication_times",
         "accuracy",
         "time_consumption",
+        "avg_delay",
         "energy_consumption",
+        "avg_energy",
         "accumulated_cost",
         "total_reward",
+        "avg_reward",
     ]
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
