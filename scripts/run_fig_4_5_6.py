@@ -242,6 +242,12 @@ def main() -> None:
 
     results_csv = os.path.join(args.out_dir, "scheme_results.csv")
     save_results_csv(rows, results_csv)
+    
+    # Save individual CSV per scheme
+    for scheme in SCHEME_ORDER:
+        scheme_rows = [r for r in rows if r.get("scheme") == scheme]
+        if scheme_rows:
+            save_results_csv(scheme_rows, os.path.join(args.out_dir, f"{scheme}_results.csv"))
 
     print("\n[INFO] Starting Figure 5 Experiments...")
     fig5_rows = run_fig5_experiment(
