@@ -108,12 +108,22 @@ class SchemeEvaluator:
         return cfg
 
     def _load_model(self):
-        if self.model_path and os.path.exists(self.model_path):
-            return PPO.load(self.model_path)
-        alt_zip = f"{self.model_path}.zip"
-        if self.model_path and os.path.exists(alt_zip):
-            return PPO.load(alt_zip)
+        candidates = [self.model_path, f"{self.model_path}.zip"]
+        for path in candidates:
+            if not (path and os.path.exists(path)):
+                continue
+            try:
+                model = PPO.load(path)
+                print(f"[INFO] Loaded PPO model from: {path}", flush=True)
+                return model
+            except Exception as e:
+                print(
+                    f"[WARN] Failed to load model from '{path}': {e}\n"
+                    f"       The file may be corrupted. Delete it and re-run training.",
+                    flush=True,
+                )
         return None
+
 
     def _fixed_physics(self, mode: str) -> tuple[np.ndarray, np.ndarray, float, float]:
         m = int(self.cfg.M)
