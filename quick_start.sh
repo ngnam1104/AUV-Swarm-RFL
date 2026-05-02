@@ -7,7 +7,7 @@
 #
 # Mặc định:
 #   WORKSPACE_ROOT = thư mục chứa script này
-#   EPISODES       = 800
+#   EPISODES       = 1000
 #   M              = 9
 # =============================================================================
 
@@ -18,7 +18,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${1:-$SCRIPT_DIR}"
-EPISODES="${2:-800}"
+EPISODES="${2:-1000}"
 M="${3:-9}"
 
 cd "$WORKSPACE_ROOT"
@@ -128,6 +128,7 @@ run_step "Train 7 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELI
         --eval-interval 5 \
         --enable-early-stopping \
         --algorithms ppo sac td3 ddpg a2c greedy random \
+        --parallel \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
         --log-dir "$LOG_DIR/fig_7_bootstrap"

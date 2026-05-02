@@ -1,5 +1,7 @@
 import argparse
 import csv
+import multiprocessing
+import concurrent.futures
 import os
 import sys
 from dataclasses import asdict
@@ -448,6 +450,65 @@ def run_policy_free_baseline(
     return costs
 
 
+def _run_single_algo(algo: str, config: SimpleNamespace, args, log_dir: str):
+    print(f"[START] Training {algo.upper()} ...", flush=True)
+    if algo == "ppo":
+        costs = train_ppo(
+            config=config, episodes=args.episodes,
+            model_out=os.path.join(args.out_dir, "ppo_baseline_model"),
+            print_every_steps=int(args.print_every_steps),
+            step_log_file=os.path.join(log_dir, "ppo_steps.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "ppo_accumulated_cost.csv"))
+    elif algo == "sac":
+        costs = train_sac(
+            config=config, episodes=args.episodes,
+            model_out=os.path.join(args.out_dir, "sac_baseline_model"),
+            print_every_steps=int(args.print_every_steps),
+            step_log_file=os.path.join(log_dir, "sac_steps.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "sac_accumulated_cost.csv"))
+    elif algo == "td3":
+        costs = train_td3(
+            config=config, episodes=args.episodes,
+            model_out=os.path.join(args.out_dir, "td3_baseline_model"),
+            print_every_steps=int(args.print_every_steps),
+            step_log_file=os.path.join(log_dir, "td3_steps.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "td3_accumulated_cost.csv"))
+    elif algo == "ddpg":
+        costs = train_ddpg(
+            config=config, episodes=args.episodes,
+            model_out=os.path.join(args.out_dir, "ddpg_baseline_model"),
+            print_every_steps=int(args.print_every_steps),
+            step_log_file=os.path.join(log_dir, "ddpg_steps.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "ddpg_accumulated_cost.csv"))
+    elif algo == "a2c":
+        costs = train_a2c(
+            config=config, episodes=args.episodes,
+            model_out=os.path.join(args.out_dir, "a2c_baseline_model"),
+            print_every_steps=int(args.print_every_steps),
+            step_log_file=os.path.join(log_dir, "a2c_steps.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "a2c_accumulated_cost.csv"))
+    elif algo == "greedy":
+        costs = run_policy_free_baseline(
+            config=config, episodes=args.episodes, mode="greedy",
+            log_file_path=os.path.join(log_dir, "greedy_episodes.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "greedy_accumulated_cost.csv"))
+    elif algo == "random":
+        costs = run_policy_free_baseline(
+            config=config, episodes=args.episodes, mode="random",
+            log_file_path=os.path.join(log_dir, "random_episodes.log"),
+        )
+        save_cost_series(costs, os.path.join(args.out_dir, "random_accumulated_cost.csv"))
+    
+    print(f"[DONE] Training {algo.upper()}.", flush=True)
+    return algo
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train and evaluate RL baselines for Figure 7.")
     parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes")
@@ -472,6 +533,7 @@ def main() -> None:
     parser.add_argument("--out-dir", type=str, default="results/fig_7", help="Output directory")
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory to save per-algorithm step logs (default: <out-dir>/logs)")
+    parser.add_argument("--parallel", action="store_true", help="Run algorithms in parallel")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -486,64 +548,23 @@ def main() -> None:
     log_dir = args.log_dir or os.path.join(args.out_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
 
-    if "ppo" in args.algorithms:
-        ppo_costs = train_ppo(
-            config=config, episodes=args.episodes,
-            model_out=os.path.join(args.out_dir, "ppo_baseline_model"),
-            print_every_steps=int(args.print_every_steps),
-            step_log_file=os.path.join(log_dir, "ppo_steps.log"),
-        )
-        save_cost_series(ppo_costs, os.path.join(args.out_dir, "ppo_accumulated_cost.csv"))
-
-    if "sac" in args.algorithms:
-        sac_costs = train_sac(
-            config=config, episodes=args.episodes,
-            model_out=os.path.join(args.out_dir, "sac_baseline_model"),
-            print_every_steps=int(args.print_every_steps),
-            step_log_file=os.path.join(log_dir, "sac_steps.log"),
-        )
-        save_cost_series(sac_costs, os.path.join(args.out_dir, "sac_accumulated_cost.csv"))
-
-    if "td3" in args.algorithms:
-        td3_costs = train_td3(
-            config=config, episodes=args.episodes,
-            model_out=os.path.join(args.out_dir, "td3_baseline_model"),
-            print_every_steps=int(args.print_every_steps),
-            step_log_file=os.path.join(log_dir, "td3_steps.log"),
-        )
-        save_cost_series(td3_costs, os.path.join(args.out_dir, "td3_accumulated_cost.csv"))
-
-    if "ddpg" in args.algorithms:
-        ddpg_costs = train_ddpg(
-            config=config, episodes=args.episodes,
-            model_out=os.path.join(args.out_dir, "ddpg_baseline_model"),
-            print_every_steps=int(args.print_every_steps),
-            step_log_file=os.path.join(log_dir, "ddpg_steps.log"),
-        )
-        save_cost_series(ddpg_costs, os.path.join(args.out_dir, "ddpg_accumulated_cost.csv"))
-
-    if "a2c" in args.algorithms:
-        a2c_costs = train_a2c(
-            config=config, episodes=args.episodes,
-            model_out=os.path.join(args.out_dir, "a2c_baseline_model"),
-            print_every_steps=int(args.print_every_steps),
-            step_log_file=os.path.join(log_dir, "a2c_steps.log"),
-        )
-        save_cost_series(a2c_costs, os.path.join(args.out_dir, "a2c_accumulated_cost.csv"))
-
-    if "greedy" in args.algorithms:
-        greedy_costs = run_policy_free_baseline(
-            config=config, episodes=args.episodes, mode="greedy",
-            log_file_path=os.path.join(log_dir, "greedy_episodes.log"),
-        )
-        save_cost_series(greedy_costs, os.path.join(args.out_dir, "greedy_accumulated_cost.csv"))
-
-    if "random" in args.algorithms:
-        random_costs = run_policy_free_baseline(
-            config=config, episodes=args.episodes, mode="random",
-            log_file_path=os.path.join(log_dir, "random_episodes.log"),
-        )
-        save_cost_series(random_costs, os.path.join(args.out_dir, "random_accumulated_cost.csv"))
+    if args.parallel and len(args.algorithms) > 1:
+        print(f"[INFO] Running {len(args.algorithms)} algorithms in parallel using ProcessPoolExecutor...")
+        ctx = multiprocessing.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(max_workers=len(args.algorithms), mp_context=ctx) as executor:
+            futures = {
+                executor.submit(_run_single_algo, algo, config, args, log_dir): algo
+                for algo in args.algorithms
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                algo = futures[fut]
+                try:
+                    fut.result()
+                except Exception as e:
+                    print(f"[ERROR] Algorithm {algo.upper()} failed: {e}", flush=True)
+    else:
+        for algo in args.algorithms:
+            _run_single_algo(algo, config, args, log_dir)
 
     print("[DONE] Baseline training complete.")
     print(f"Outputs saved under: {args.out_dir}")
