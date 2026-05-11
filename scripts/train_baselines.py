@@ -4,10 +4,13 @@ import multiprocessing
 import concurrent.futures
 import os
 import sys
+import warnings
 from dataclasses import asdict
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import cast
+
+warnings.filterwarnings("ignore")
 
 import numpy as np
 from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
@@ -248,7 +251,7 @@ def train_ppo(
         n_steps=n_steps,
         batch_size=batch_size,
         n_epochs=int(config.ppo_n_epochs),
-        verbose=1,
+        verbose=0,
     )
 
     total_timesteps = int(episodes * config.max_fl_rounds)
@@ -290,7 +293,7 @@ def train_ddpg(
         gamma=0.99,
         train_freq=(1, "step"),
         gradient_steps=1,
-        verbose=1,
+        verbose=0,
     )
 
     total_timesteps = int(episodes * config.max_fl_rounds)
@@ -330,7 +333,7 @@ def train_sac(
         gradient_steps=1,
         ent_coef="auto",          # automatic entropy tuning
         target_entropy="auto",
-        verbose=1,
+        verbose=0,
     )
     model.learn(total_timesteps=int(episodes * config.max_fl_rounds), callback=callback)
     if model_out:
@@ -367,7 +370,7 @@ def train_td3(
         policy_delay=2,           # TD3 key: delayed policy update
         target_policy_noise=0.2,
         target_noise_clip=0.5,
-        verbose=1,
+        verbose=0,
     )
     model.learn(total_timesteps=int(episodes * config.max_fl_rounds), callback=callback)
     if model_out:
@@ -401,7 +404,7 @@ def train_a2c(
         ent_coef=0.0,
         vf_coef=0.5,
         max_grad_norm=0.5,
-        verbose=1,
+        verbose=0,
     )
     model.learn(total_timesteps=int(episodes * config.max_fl_rounds), callback=callback)
     if model_out:
