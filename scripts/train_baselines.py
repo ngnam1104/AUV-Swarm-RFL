@@ -64,7 +64,7 @@ class EpisodeMetricsCallback(BaseCallback):
         self.pos = pos
 
     def _on_training_start(self) -> None:
-        self.pbar = tqdm(total=self.target_episodes, desc=f"[{self.label:^6}]", position=self.pos, leave=True)
+        self.pbar = tqdm(total=self.target_episodes, desc=f"[{self.label:^6}] RL", position=self.pos, leave=True)
 
     def _on_training_end(self) -> None:
         if self.pbar is not None:
@@ -121,12 +121,15 @@ class StepInfoCallback(BaseCallback):
         print_every_steps: int = 1,
         log_file_path: str | None = None,
         verbose: int = 0,
+        pos: int = 0,
     ):
         super().__init__(verbose)
         self.label = label
         self.print_every_steps = max(1, int(print_every_steps))
         self.log_file_path = log_file_path
         self._log_file = None
+        self.pos = pos
+        self.fl_pbar = None
 
     def _on_training_start(self) -> None:
         if self.log_file_path:
@@ -140,6 +143,8 @@ class StepInfoCallback(BaseCallback):
             self._log_file.flush()
 
     def _on_training_end(self) -> None:
+        if self.fl_pbar is not None:
+            self.fl_pbar.close()
         if self._log_file is not None:
             self._log_file.write(
                 f"=== {self.label} baseline training ended at {datetime.now(timezone.utc).isoformat()} ===\n"
@@ -149,28 +154,47 @@ class StepInfoCallback(BaseCallback):
             self._log_file = None
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % self.print_every_steps != 0:
-            return True
-
         infos = self.locals.get("infos", [])
         rewards = self.locals.get("rewards", [])
+        dones = self.locals.get("dones", [])
+        
         if not infos:
             return True
 
         info = infos[0] if isinstance(infos[0], dict) else {}
         reward = float(rewards[0]) if len(rewards) > 0 else float("nan")
         timing = info.get("timing", {}) if isinstance(info, dict) else {}
+        
+        step_idx = info.get('step_idx', 0)
+        max_steps = info.get('max_steps', 1000)
+
+        # Quản lý FL progress bar (tầng dưới)
+        if self.fl_pbar is None or step_idx <= 1:
+            if self.fl_pbar is not None:
+                self.fl_pbar.close()
+            self.fl_pbar = tqdm(
+                total=max_steps, 
+                desc=f" └─ {self.label} FL", 
+                position=self.pos + 3, # Đặt ở phía dưới các RL bars
+                leave=False
+            )
+        
+        self.fl_pbar.n = step_idx
+        self.fl_pbar.set_postfix(acc=f"{info.get('accuracy', 0):.4f}")
+        self.fl_pbar.refresh()
+
+        if self.num_timesteps % self.print_every_steps != 0:
+            return True
 
         step_line = (
             f"[FL-RL Step {self.num_timesteps}] "
-            f"ep_step={info.get('step_idx', 'n/a')}/{info.get('max_steps', 'n/a')} | "
+            f"ep_step={step_idx}/{max_steps} | "
             f"reward={reward:.4f} | cost={float(info.get('cost', np.nan)):.4f} | "
             f"acc_cost={float(info.get('accumulated_cost', np.nan)):.4f} | "
             f"active={info.get('active_nodes', 'n/a')} | acc={float(info.get('accuracy', np.nan)):.4f} | "
             f"conv={info.get('is_converged', False)} | "
             f"T={float(info.get('T_total', np.nan)):.4f}s | E={float(info.get('E_total', np.nan)):.4f}J"
         )
-        # print(step_line, flush=True) # Chỉ ghi vào log file, không in ra terminal
         if self._log_file is not None:
             self._log_file.write(step_line + "\n")
 
@@ -178,6 +202,15 @@ class StepInfoCallback(BaseCallback):
             timing_line = (
                 f"[FL TIMING] total={timing.get('step_total_sec', 0):.2f}s | "
                 f"local_train={timing.get('local_train_and_grad_sec', 0):.2f}s | "
+                f"eval={timing.get('evaluate_sec', 0):.2f}s "
+                f"(every {timing.get('eval_interval', 'n/a')} steps, ran={timing.get('should_evaluate', False)}) | "
+                f"agg={timing.get('aggregate_sec', 0):.2f}s | "
+                f"slowest={timing.get('slowest_stage', 'n/a')}"
+            )
+            if self._log_file is not None:
+                self._log_file.write(timing_line + "\n")
+                self._log_file.flush()
+        return True
                 f"eval={timing.get('evaluate_sec', 0):.2f}s "
                 f"(every {timing.get('eval_interval', 'n/a')} steps, ran={timing.get('should_evaluate', False)}) | "
                 f"agg={timing.get('aggregate_sec', 0):.2f}s | "
@@ -211,6 +244,7 @@ def train_ppo(
             label="PPO",
             print_every_steps=print_every_steps,
             log_file_path=step_log_file,
+            pos=pos
         ),
     ]
 
@@ -453,12 +487,17 @@ def run_policy_free_baseline(
         log_fh.write(f"=== {mode.upper()} baseline started ===\n")
         log_fh.flush()
 
-    pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}]", position=pos, leave=True)
-
+    pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}] RL", position=pos, leave=True)
+    fl_pbar = None
+    
     for ep in range(episodes):
         obs, _ = env.reset()
         done = False
         last_info = {}
+
+        if fl_pbar is not None:
+            fl_pbar.close()
+        fl_pbar = tqdm(total=config.max_fl_rounds, desc=f" └─ {mode.upper()} FL", position=pos+3, leave=False)
 
         while not done:
             if mode == "random":
@@ -472,6 +511,10 @@ def run_policy_free_baseline(
             _ = (obs, reward)
             done = bool(terminated or truncated)
             last_info = info
+            
+            fl_pbar.n = info.get('step_idx', 0)
+            fl_pbar.set_postfix(acc=f"{info.get('accuracy', 0):.4f}")
+            fl_pbar.refresh()
 
         step_idx = max(1, last_info.get("step_idx", 1))
         metrics = {
@@ -501,6 +544,8 @@ def run_policy_free_baseline(
                 log_fh.flush()
 
     pbar.close()
+    if fl_pbar is not None:
+        fl_pbar.close()
 
     if log_fh is not None:
         log_fh.write(f"=== {mode.upper()} baseline finished ===\n")
