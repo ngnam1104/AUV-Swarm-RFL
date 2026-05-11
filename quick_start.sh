@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# quick_start.sh  —  Ubuntu / bash — AUV-Swarm-RFL full experiment pipeline
+# quick_start.sh  —  Ubuntu / bash — AUV-Swarm-RFL experiment pipeline
 #
-# Cách dùng:
+# Usage:
 #   bash quick_start.sh [WORKSPACE_ROOT] [EPISODES] [M]
 #
-# Mặc định:
-#   WORKSPACE_ROOT = thư mục chứa script này
+# Defaults:
+#   WORKSPACE_ROOT = directory containing this script
 #   EPISODES       = 1000
 #   M              = 9
 # =============================================================================
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# 0. Tham số đầu vào
+# 0. Input parameters
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${1:-$SCRIPT_DIR}"
@@ -24,7 +24,7 @@ M="${3:-9}"
 cd "$WORKSPACE_ROOT"
 
 # ---------------------------------------------------------------------------
-# 1. Kích hoạt môi trường Conda
+# 1. Activate Conda environment
 # ---------------------------------------------------------------------------
 CONDA_ENV="auv_rfl"
 
@@ -51,13 +51,13 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PYTHON="python"
 
 # ---------------------------------------------------------------------------
-# 2. Cài đặt dependencies
+# 2. Install dependencies
 # ---------------------------------------------------------------------------
 echo "[INFO] Installing requirements..."
 pip install -r requirements.txt
 
 # ---------------------------------------------------------------------------
-# 3. Chuẩn bị thư mục results/logs
+# 3. Prepare results/logs directories
 # ---------------------------------------------------------------------------
 RESULTS_DIR="$WORKSPACE_ROOT/results"
 LOG_DIR="$RESULTS_DIR/logs"
@@ -66,8 +66,7 @@ mkdir -p "$LOG_DIR"
 PIPELINE_LOG="$LOG_DIR/pipeline.log"
 
 # ---------------------------------------------------------------------------
-# 4. Hàm run_step — in stdout + ghi pipeline log, KHÔNG exit toàn bộ khi fail
-#    Dùng run_step_safe cho các bước không critical (vd: zip)
+# 4. run_step helper — tee stdout to pipeline log, never abort on failure
 # ---------------------------------------------------------------------------
 run_step() {
     local name="$1"
@@ -89,7 +88,6 @@ run_step() {
     if [ "$exit_code" -ne 0 ]; then
         echo "[$stamp] FAIL: $name (exit=$exit_code)" | tee -a "$log_file"
         echo "[WARN] Step '$name' failed with exit=$exit_code — continuing pipeline..." | tee -a "$log_file"
-        # Không exit — cho pipeline tiếp tục các bước còn lại
         return 0
     fi
     echo "[$stamp] DONE: $name" | tee -a "$log_file"
@@ -97,13 +95,15 @@ run_step() {
 
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
 
-
-
 # ---------------------------------------------------------------------------
-# 7. Bước 2 — Train 3 RL algorithms (bootstrap cho Scheme Comparison)
-#    Dùng --out-dir results/fig_7  (PPO model cần ở đây để Scheme 1 load)
+# Step 1 — Train RL baselines (PPO + Greedy + Random)
+#
+#   Output:
+#     - PPO model  : results/fig_7/ppo_baseline_model.zip
+#     - Step logs  : results/logs/fig_7_baselines/{ppo,greedy,random}_*.log
+#     - Metrics CSV: results/fig_7/{ppo,greedy,random}_metrics.csv
 # ---------------------------------------------------------------------------
-run_step "Train 3 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+run_step "Train RL baselines ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/train_baselines.py \
         --m "$M" \
         --max-fl-rounds 1000 \
@@ -115,12 +115,14 @@ run_step "Train 3 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELI
         --max-parallel-workers 3 \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
-        --log-dir "$LOG_DIR/fig_7_bootstrap"
+        --log-dir "$LOG_DIR/fig_7_baselines"
 
 # ---------------------------------------------------------------------------
-# 8. Bước 3 — Plot Figure 7 (bootstrap)
+# Step 2 — Plot Figure 7 (convergence / cost curves)
+#
+#   Output: results/fig_7/figure7.png
 # ---------------------------------------------------------------------------
-run_step "Plot Figure 7 bootstrap" "$PIPELINE_LOG" \
+run_step "Plot Figure 7" "$PIPELINE_LOG" \
     $PYTHON -u scripts/plot_fig_7.py \
         --input-dir "$RESULTS_DIR/fig_7" \
         --sigma 2.0 \
@@ -128,12 +130,14 @@ run_step "Plot Figure 7 bootstrap" "$PIPELINE_LOG" \
         --out-dir "$RESULTS_DIR/fig_7"
 
 # ---------------------------------------------------------------------------
-# 9. Bước 4 — Scheme Comparison & Ablation (Figure 4, 5, 6)
-#    PPO model được load từ results/fig_7/ppo_baseline_model_ep100
+# Step 3 — Scheme Comparison & Ablation (Figures 4, 5, 6)
+#
+#   PPO model loaded from: results/fig_7/ppo_baseline_model[.zip]
+#   (saved by Step 1 via train_baselines.py --model-out)
+#   Output: results/eval_schemes/
 # ---------------------------------------------------------------------------
-PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model_ep100"
+PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model"
 
-# Kiểm tra model tồn tại (có thể là .zip hoặc không có extension)
 if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
     run_step "Scheme Comparison (Figs 4, 5, 6)" "$PIPELINE_LOG" \
         $PYTHON -u scripts/run_fig_4_5_6.py \
@@ -148,11 +152,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 12. Kết thúc
+# Done
 # ---------------------------------------------------------------------------
 echo "" | tee -a "$PIPELINE_LOG"
 echo "==== Pipeline finished at $(date '+%Y-%m-%d %H:%M:%S') ====" | tee -a "$PIPELINE_LOG"
 echo ""
 echo "Pipeline done."
-echo "  Results  : $RESULTS_DIR"
+echo "  Results     : $RESULTS_DIR"
 echo "  Pipeline log: $PIPELINE_LOG"

@@ -92,8 +92,8 @@ def run_fig5_experiment(
     
     ablation_set = [
         ("The proposed control model", "scheme1", 5),
-        ("Control model without \u03c4", "scheme1", 1000), # Large tau to disable force-active
-        ("None control model", "scheme5", 5), # Scheme 5 is all active
+        ("Control model without tau", "scheme1", 1000),  # Large tau to disable force-active
+        ("None control model", "scheme5", 5),  # Scheme 5 is all active
     ]
     
     total_jobs = len(m_values) * len(ablation_set)
@@ -179,7 +179,7 @@ def plot_by_scheme(rows: List[Dict], m_values: List[int], metric_key: str, ylabe
 def plot_fig5(rows: List[Dict], m_values: List[int], output_path: str) -> None:
     plt.figure(figsize=(9, 5.5))
     
-    labels = ["The proposed control model", "Control model without \u03c4", "None control model"]
+    labels = ["The proposed control model", "Control model without tau", "None control model"]
     
     for label in labels:
         label_rows = [r for r in rows if r["fig5_label"] == label]

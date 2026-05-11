@@ -97,23 +97,20 @@ class EpisodeMetricsCallback(BaseCallback):
                         rew=f"{metrics['avg_reward']:.2f}"
                     )
                     self.pbar.update(1)
-                
-                # if current_ep % self.print_every_episode == 0:
-                #     print(
-                #         f"[{self.label}] Episode {current_ep} | "
-                #         f"cost={metrics['accumulated_cost']:.4f} | avg_delay={metrics['avg_delay']:.4f}s | "
-                #         f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
-                #         flush=True,
-                #     )
-                
-                if self.model_out_prefix and current_ep % 100 == 0:
-                    save_path = f"{self.model_out_prefix}_ep{current_ep}"
-                    self.model.save(save_path)
-                    # print(f"[{self.label}] Saved checkpoint to {save_path}", flush=True)
-        
+
+                if self.model_out_prefix:
+                    # Lưu "latest" checkpoint sau mỗi episode (overwrite)
+                    # => đảm bảo luôn có model mới nhất nếu training bị interrupt
+                    self.model.save(self.model_out_prefix)
+
+                    # Lưu checkpoint có tên riêng mỗi 100 episode
+                    if current_ep % 50 == 0:
+                        save_path = f"{self.model_out_prefix}_ep{current_ep}"
+                        self.model.save(save_path)
+
         if len(self.episode_metrics) >= self.target_episodes:
             return False
-            
+
         return True
 
 
@@ -191,21 +188,28 @@ class StepInfoCallback(BaseCallback):
         if self.num_timesteps % self.print_every_steps != 0:
             return True
 
+        # --- Ghi đầy đủ FL-RL step log vào file (không in ra stdout/tqdm) ---
         step_line = (
-            f"[FL-RL Step {self.num_timesteps}] "
+            f"[{self.label}][FL-RL Step {self.num_timesteps}] "
             f"ep_step={step_idx}/{max_steps} | "
             f"reward={reward:.4f} | cost={float(info.get('cost', np.nan)):.4f} | "
             f"acc_cost={float(info.get('accumulated_cost', np.nan)):.4f} | "
-            f"active={info.get('active_nodes', 'n/a')} | acc={float(info.get('accuracy', np.nan)):.4f} | "
+            f"active={info.get('active_nodes', 'n/a')} | "
+            f"acc={float(info.get('accuracy', np.nan)):.4f} | "
             f"conv={info.get('is_converged', False)} | "
-            f"T={float(info.get('T_total', np.nan)):.4f}s | E={float(info.get('E_total', np.nan)):.4f}J"
+            f"T_total={float(info.get('T_total', np.nan)):.4f}s | "
+            f"E_total={float(info.get('E_total', np.nan)):.4f}J | "
+            f"active_comm_nodes={info.get('active_nodes', 'n/a')}/{info.get('total_nodes', 'n/a')} | "
+            f"accumulated_comm={int(info.get('accumulated_comm', 0))} | "
+            f"latency={float(info.get('accumulated_delay', np.nan)):.4f}s | "
+            f"energy={float(info.get('accumulated_energy', np.nan)):.4f}J"
         )
         if self._log_file is not None:
             self._log_file.write(step_line + "\n")
 
         if timing:
             timing_line = (
-                f"[FL TIMING] total={timing.get('step_total_sec', 0):.2f}s | "
+                f"[{self.label}][FL TIMING] total={timing.get('step_total_sec', 0):.2f}s | "
                 f"local_train={timing.get('local_train_and_grad_sec', 0):.2f}s | "
                 f"eval={timing.get('evaluate_sec', 0):.2f}s "
                 f"(every {timing.get('eval_interval', 'n/a')} steps, ran={timing.get('should_evaluate', False)}) | "
@@ -479,22 +483,37 @@ def run_policy_free_baseline(
     if log_file_path:
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
         log_fh = open(log_file_path, "w", encoding="utf-8")
-        log_fh.write(f"=== {mode.upper()} baseline started ===\n")
+        log_fh.write(
+            f"=== {mode.upper()} baseline started at {datetime.now(timezone.utc).isoformat()} ===\n"
+        )
         log_fh.flush()
 
     pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}] RL", position=pos, leave=True)
     fl_pbar = None
-    
+    global_step = 0  # timestep counter across all episodes
+
     for ep in range(episodes):
         obs, _ = env.reset()
         done = False
         last_info = {}
+        ep_step = 0
 
         if fl_pbar is None:
-            fl_pbar = tqdm(total=config.max_fl_rounds, desc=f" └─ {mode.upper():>6} FL", position=pos+3, leave=False)
-            
+            fl_pbar = tqdm(
+                total=config.max_fl_rounds,
+                desc=f" └─ {mode.upper():>6} FL",
+                position=pos + 3,
+                leave=False,
+            )
+
         fl_pbar.reset(total=config.max_fl_rounds)
         fl_pbar.refresh()
+
+        if log_fh is not None:
+            log_fh.write(
+                f"[{mode.upper()}] === Episode {ep + 1}/{episodes} START ===\n"
+            )
+            log_fh.flush()
 
         while not done:
             if mode == "random":
@@ -508,11 +527,50 @@ def run_policy_free_baseline(
             _ = (obs, reward)
             done = bool(terminated or truncated)
             last_info = info
-            
-            fl_pbar.n = info.get('step_idx', 0)
+            global_step += 1
+            ep_step = int(info.get("step_idx", ep_step + 1))
+            max_steps = int(info.get("max_steps", config.max_fl_rounds))
+
+            # --- Cập nhật FL progress bar (terminal UI, không ghi log) ---
+            fl_pbar.n = ep_step
             fl_pbar.set_postfix(acc=f"{info.get('accuracy', 0):.4f}")
             fl_pbar.refresh()
 
+            # --- Ghi đầy đủ FL-RL step log vào file ---
+            if log_fh is not None:
+                step_line = (
+                    f"[{mode.upper()}][FL-RL Step {global_step}] "
+                    f"ep={ep + 1}/{episodes} ep_step={ep_step}/{max_steps} | "
+                    f"reward={float(reward):.4f} | "
+                    f"cost={float(info.get('cost', np.nan)):.4f} | "
+                    f"acc_cost={float(info.get('accumulated_cost', np.nan)):.4f} | "
+                    f"active={info.get('active_nodes', 'n/a')} | "
+                    f"acc={float(info.get('accuracy', np.nan)):.4f} | "
+                    f"conv={info.get('is_converged', False)} | "
+                    f"T_total={float(info.get('T_total', np.nan)):.4f}s | "
+                    f"E_total={float(info.get('E_total', np.nan)):.4f}J | "
+                    f"active_comm_nodes={info.get('active_nodes', 'n/a')}/{info.get('total_nodes', 'n/a')} | "
+                    f"accumulated_comm={int(info.get('accumulated_comm', 0))} | "
+                    f"latency={float(info.get('accumulated_delay', np.nan)):.4f}s | "
+                    f"energy={float(info.get('accumulated_energy', np.nan)):.4f}J"
+                )
+                log_fh.write(step_line + "\n")
+                # Ghi timing nếu có
+                timing = info.get("timing", {})
+                if timing:
+                    timing_line = (
+                        f"[{mode.upper()}][FL TIMING] "
+                        f"total={timing.get('step_total_sec', 0):.2f}s | "
+                        f"local_train={timing.get('local_train_and_grad_sec', 0):.2f}s | "
+                        f"eval={timing.get('evaluate_sec', 0):.2f}s "
+                        f"(every {timing.get('eval_interval', 'n/a')} steps, ran={timing.get('should_evaluate', False)}) | "
+                        f"agg={timing.get('aggregate_sec', 0):.2f}s | "
+                        f"slowest={timing.get('slowest_stage', 'n/a')}"
+                    )
+                    log_fh.write(timing_line + "\n")
+                log_fh.flush()
+
+        # --- Tổng kết cuối episode ---
         step_idx = max(1, last_info.get("step_idx", 1))
         metrics = {
             "accumulated_cost": float(last_info.get("accumulated_cost", np.nan)),
@@ -522,30 +580,33 @@ def run_policy_free_baseline(
             "avg_comm": float(last_info.get("accumulated_comm", 0.0)) / step_idx,
         }
         metrics_list.append(metrics)
-        
+
         pbar.set_postfix(
             cost=f"{metrics['accumulated_cost']:.2f}",
-            rew=f"{metrics['avg_reward']:.2f}"
+            rew=f"{metrics['avg_reward']:.2f}",
         )
         pbar.update(1)
 
         if log_fh is not None:
-            if (ep + 1) % 10 == 0 or ep == 0:
-                line = (
-                    f"[{mode.upper()}] Episode {ep + 1}/{episodes} "
-                    f"| accumulated_cost={metrics['accumulated_cost']:.4f} "
-                    f"| avg_delay={metrics['avg_delay']:.4f}s "
-                    f"| avg_energy={metrics['avg_energy']:.4f}J"
-                )
-                log_fh.write(line + "\n")
-                log_fh.flush()
+            ep_summary = (
+                f"[{mode.upper()}] === Episode {ep + 1}/{episodes} DONE | "
+                f"accumulated_cost={metrics['accumulated_cost']:.4f} | "
+                f"avg_delay={metrics['avg_delay']:.4f}s | "
+                f"avg_energy={metrics['avg_energy']:.4f}J | "
+                f"avg_comm={metrics['avg_comm']:.4f}s | "
+                f"avg_reward={metrics['avg_reward']:.4f} ===\n"
+            )
+            log_fh.write(ep_summary)
+            log_fh.flush()
 
     pbar.close()
     if fl_pbar is not None:
         fl_pbar.close()
 
     if log_fh is not None:
-        log_fh.write(f"=== {mode.upper()} baseline finished ===\n")
+        log_fh.write(
+            f"=== {mode.upper()} baseline finished at {datetime.now(timezone.utc).isoformat()} ===\n"
+        )
         log_fh.close()
 
     env.close()
