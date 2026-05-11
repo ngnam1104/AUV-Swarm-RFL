@@ -19,6 +19,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+from tqdm import tqdm
 from config.settings import ACOUSTIC_CFG, FL_CFG, HW_CFG, RL_CFG
 from env.auv_env import AUVSwarmEnv
 from fl_core.simulator import FLSimulator
@@ -52,13 +53,22 @@ def save_metrics_series(metrics_list: list[dict], out_csv: str) -> None:
 
 
 class EpisodeMetricsCallback(BaseCallback):
-    def __init__(self, label: str, target_episodes: int, verbose: int = 0, print_every_episode: int = 1, model_out_prefix: str | None = None):
+    def __init__(self, label: str, target_episodes: int, verbose: int = 0, print_every_episode: int = 1, model_out_prefix: str | None = None, pos: int = 0):
         super().__init__(verbose)
         self.label = label
         self.target_episodes = target_episodes
         self.print_every_episode = max(1, int(print_every_episode))
         self.model_out_prefix = model_out_prefix
         self.episode_metrics: list[dict] = []
+        self.pbar = None
+        self.pos = pos
+
+    def _on_training_start(self) -> None:
+        self.pbar = tqdm(total=self.target_episodes, desc=f"[{self.label:^6}]", position=self.pos, leave=True)
+
+    def _on_training_end(self) -> None:
+        if self.pbar is not None:
+            self.pbar.close()
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -77,19 +87,26 @@ class EpisodeMetricsCallback(BaseCallback):
                 }
                 self.episode_metrics.append(metrics)
                 current_ep = len(self.episode_metrics)
-                
-                if current_ep % self.print_every_episode == 0:
-                    print(
-                        f"[{self.label}] Episode {current_ep} | "
-                        f"cost={metrics['accumulated_cost']:.4f} | avg_delay={metrics['avg_delay']:.4f}s | "
-                        f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
-                        flush=True,
+
+                if self.pbar is not None:
+                    self.pbar.set_postfix(
+                        cost=f"{metrics['accumulated_cost']:.2f}",
+                        rew=f"{metrics['avg_reward']:.2f}"
                     )
+                    self.pbar.update(1)
+                
+                # if current_ep % self.print_every_episode == 0:
+                #     print(
+                #         f"[{self.label}] Episode {current_ep} | "
+                #         f"cost={metrics['accumulated_cost']:.4f} | avg_delay={metrics['avg_delay']:.4f}s | "
+                #         f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
+                #         flush=True,
+                #     )
                 
                 if self.model_out_prefix and current_ep % 100 == 0:
                     save_path = f"{self.model_out_prefix}_ep{current_ep}"
                     self.model.save(save_path)
-                    print(f"[{self.label}] Saved checkpoint to {save_path}", flush=True)
+                    # print(f"[{self.label}] Saved checkpoint to {save_path}", flush=True)
         
         if len(self.episode_metrics) >= self.target_episodes:
             return False
@@ -153,7 +170,7 @@ class StepInfoCallback(BaseCallback):
             f"conv={info.get('is_converged', False)} | "
             f"T={float(info.get('T_total', np.nan)):.4f}s | E={float(info.get('E_total', np.nan)):.4f}J"
         )
-        print(step_line, flush=True)
+        # print(step_line, flush=True) # Chỉ ghi vào log file, không in ra terminal
         if self._log_file is not None:
             self._log_file.write(step_line + "\n")
 
@@ -166,7 +183,7 @@ class StepInfoCallback(BaseCallback):
                 f"agg={timing.get('aggregate_sec', 0):.2f}s | "
                 f"slowest={timing.get('slowest_stage', 'n/a')}"
             )
-            print(timing_line, flush=True)
+            # print(timing_line, flush=True) # Chỉ ghi vào log file, không in ra terminal
             if self._log_file is not None:
                 self._log_file.write(timing_line + "\n")
                 self._log_file.flush()
@@ -185,10 +202,11 @@ def train_ppo(
     model_out: str | None = None,
     print_every_steps: int = 1,
     step_log_file: str | None = None,
+    pos: int = 0
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="PPO", target_episodes=episodes, print_every_episode=1, model_out_prefix=model_out),
+        EpisodeMetricsCallback(label="PPO", target_episodes=episodes, print_every_episode=1, model_out_prefix=model_out, pos=pos),
         StepInfoCallback(
             label="PPO",
             print_every_steps=print_every_steps,
@@ -423,6 +441,7 @@ def run_policy_free_baseline(
     episodes: int,
     mode: str,
     log_file_path: str | None = None,
+    pos: int = 0
 ) -> list[float]:
     env = make_env(config)
     base_env = cast(AUVSwarmEnv, env.env)
@@ -433,6 +452,8 @@ def run_policy_free_baseline(
         log_fh = open(log_file_path, "w", encoding="utf-8")
         log_fh.write(f"=== {mode.upper()} baseline started ===\n")
         log_fh.flush()
+
+    pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}]", position=pos, leave=True)
 
     for ep in range(episodes):
         obs, _ = env.reset()
@@ -461,17 +482,25 @@ def run_policy_free_baseline(
             "avg_comm": float(last_info.get("accumulated_comm", 0.0)) / step_idx,
         }
         metrics_list.append(metrics)
-        if (ep + 1) % 10 == 0 or ep == 0:
-            line = (
-                f"[{mode.upper()}] Episode {ep + 1}/{episodes} "
-                f"| accumulated_cost={metrics['accumulated_cost']:.4f} "
-                f"| avg_delay={metrics['avg_delay']:.4f}s "
-                f"| avg_energy={metrics['avg_energy']:.4f}J"
-            )
-            print(line, flush=True)
-            if log_fh is not None:
+        
+        pbar.set_postfix(
+            cost=f"{metrics['accumulated_cost']:.2f}",
+            rew=f"{metrics['avg_reward']:.2f}"
+        )
+        pbar.update(1)
+
+        if log_fh is not None:
+            if (ep + 1) % 10 == 0 or ep == 0:
+                line = (
+                    f"[{mode.upper()}] Episode {ep + 1}/{episodes} "
+                    f"| accumulated_cost={metrics['accumulated_cost']:.4f} "
+                    f"| avg_delay={metrics['avg_delay']:.4f}s "
+                    f"| avg_energy={metrics['avg_energy']:.4f}J"
+                )
                 log_fh.write(line + "\n")
                 log_fh.flush()
+
+    pbar.close()
 
     if log_fh is not None:
         log_fh.write(f"=== {mode.upper()} baseline finished ===\n")
@@ -481,14 +510,15 @@ def run_policy_free_baseline(
     return metrics_list
 
 
-def _run_single_algo(algo: str, config: SimpleNamespace, args, log_dir: str):
-    print(f"[START] Training {algo.upper()} ...", flush=True)
+def _run_single_algo(algo: str, config: SimpleNamespace, args, log_dir: str, pos: int = 0):
+    # print(f"[START] Training {algo.upper()} ...", flush=True)
     if algo == "ppo":
         metrics_list = train_ppo(
             config=config, episodes=args.episodes,
             model_out=os.path.join(args.out_dir, "ppo_baseline_model"),
             print_every_steps=int(args.print_every_steps),
             step_log_file=os.path.join(log_dir, "ppo_steps.log"),
+            pos=pos
         )
         save_metrics_series(metrics_list, os.path.join(args.out_dir, "ppo_metrics.csv"))
     elif algo == "sac":
@@ -527,16 +557,18 @@ def _run_single_algo(algo: str, config: SimpleNamespace, args, log_dir: str):
         metrics_list = run_policy_free_baseline(
             config=config, episodes=args.episodes, mode="greedy",
             log_file_path=os.path.join(log_dir, "greedy_episodes.log"),
+            pos=pos
         )
         save_metrics_series(metrics_list, os.path.join(args.out_dir, "greedy_metrics.csv"))
     elif algo == "random":
         metrics_list = run_policy_free_baseline(
             config=config, episodes=args.episodes, mode="random",
             log_file_path=os.path.join(log_dir, "random_episodes.log"),
+            pos=pos
         )
         save_metrics_series(metrics_list, os.path.join(args.out_dir, "random_metrics.csv"))
     
-    print(f"[DONE] Training {algo.upper()}.", flush=True)
+    # print(f"[DONE] Training {algo.upper()}.", flush=True)
     return algo
 
 
@@ -565,7 +597,7 @@ def main() -> None:
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory to save per-algorithm step logs (default: <out-dir>/logs)")
     parser.add_argument("--parallel", action="store_true", help="Run algorithms in parallel")
-    parser.add_argument("--max-parallel-workers", type=int, default=7, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
+    parser.add_argument("--max-parallel-workers", type=int, default=3, help="Max parallel workers if --parallel is used (to prevent OOM on 16GB RAM)")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -586,8 +618,8 @@ def main() -> None:
         ctx = multiprocessing.get_context("spawn")
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = {
-                executor.submit(_run_single_algo, algo, config, args, log_dir): algo
-                for algo in args.algorithms
+                executor.submit(_run_single_algo, algo, config, args, log_dir, idx): algo
+                for idx, algo in enumerate(args.algorithms)
             }
             has_error = False
             for fut in concurrent.futures.as_completed(futures):
@@ -601,8 +633,8 @@ def main() -> None:
             if has_error:
                 sys.exit(1)
     else:
-        for algo in args.algorithms:
-            _run_single_algo(algo, config, args, log_dir)
+        for idx, algo in enumerate(args.algorithms):
+            _run_single_algo(algo, config, args, log_dir, pos=idx)
 
     print("[DONE] Baseline training complete.")
     print(f"Outputs saved under: {args.out_dir}")

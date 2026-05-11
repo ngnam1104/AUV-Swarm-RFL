@@ -91,7 +91,7 @@ class AUVTensorboardCallback(BaseCallback):
                     f"conv={info.get('is_converged', False)} | "
                     f"T={t_total:.4f}s | E={e_total:.4f}J"
                 )
-                print(step_line, flush=True)
+                # print(step_line, flush=True) # Chỉ ghi vào log file
                 self._write_log_line(step_line)
 
                 if timing:
@@ -103,7 +103,7 @@ class AUVTensorboardCallback(BaseCallback):
                         f"agg={timing.get('aggregate_sec', 0):.2f}s | "
                         f"slowest={timing.get('slowest_stage', 'n/a')}"
                     )
-                    print(timing_line, flush=True)
+                    # print(timing_line, flush=True) # Chỉ ghi vào log file
                     self._write_log_line(timing_line)
 
             if dones is not None and len(dones) > idx and bool(dones[idx]):
