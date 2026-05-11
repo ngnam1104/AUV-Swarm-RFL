@@ -112,6 +112,7 @@ run_step "Train 3 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELI
         --enable-early-stopping \
         --algorithms ppo greedy random \
         --parallel \
+        --max-parallel-workers 3 \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
         --log-dir "$LOG_DIR/fig_7_bootstrap"
