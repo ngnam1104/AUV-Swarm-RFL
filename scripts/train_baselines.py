@@ -67,7 +67,7 @@ class EpisodeMetricsCallback(BaseCallback):
         self.pos = pos
 
     def _on_training_start(self) -> None:
-        self.pbar = tqdm(total=self.target_episodes, desc=f"[{self.label:^6}] RL", position=self.pos, leave=True)
+        self.pbar = tqdm(total=self.target_episodes, desc=f"[{self.label:^6}] RL", position=self.pos, leave=True, file=sys.stderr)
 
     def _on_training_end(self) -> None:
         if self.pbar is not None:
@@ -174,7 +174,8 @@ class StepInfoCallback(BaseCallback):
                 total=max_steps, 
                 desc=f" └─ {self.label:>6} FL", 
                 position=self.pos + 3, # Đặt ở phía dưới các RL bars
-                leave=False
+                leave=False,
+                file=sys.stderr
             )
             
         if step_idx <= 1:
@@ -206,6 +207,10 @@ class StepInfoCallback(BaseCallback):
         )
         if self._log_file is not None:
             self._log_file.write(step_line + "\n")
+        
+        # tqdm.write đẩy ra stdout mà không làm hỏng progress bar
+        # Giúp pipeline.log (qua stdout) bắt được thông số này
+        tqdm.write(step_line, file=sys.stdout)
 
         if timing:
             timing_line = (
@@ -219,6 +224,7 @@ class StepInfoCallback(BaseCallback):
             if self._log_file is not None:
                 self._log_file.write(timing_line + "\n")
                 self._log_file.flush()
+            tqdm.write(timing_line, file=sys.stdout)
         return True
 
 
@@ -488,7 +494,7 @@ def run_policy_free_baseline(
         )
         log_fh.flush()
 
-    pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}] RL", position=pos, leave=True)
+    pbar = tqdm(total=episodes, desc=f"[{mode.upper():^6}] RL", position=pos, leave=True, file=sys.stderr)
     fl_pbar = None
     global_step = 0  # timestep counter across all episodes
 
@@ -504,6 +510,7 @@ def run_policy_free_baseline(
                 desc=f" └─ {mode.upper():>6} FL",
                 position=pos + 3,
                 leave=False,
+                file=sys.stderr
             )
 
         fl_pbar.reset(total=config.max_fl_rounds)
@@ -555,6 +562,9 @@ def run_policy_free_baseline(
                     f"energy={float(info.get('accumulated_energy', np.nan)):.4f}J"
                 )
                 log_fh.write(step_line + "\n")
+                # tqdm.write đẩy ra stdout để pipeline.log bắt được
+                tqdm.write(step_line, file=sys.stdout)
+
                 # Ghi timing nếu có
                 timing = info.get("timing", {})
                 if timing:
@@ -568,6 +578,7 @@ def run_policy_free_baseline(
                         f"slowest={timing.get('slowest_stage', 'n/a')}"
                     )
                     log_fh.write(timing_line + "\n")
+                    tqdm.write(timing_line, file=sys.stdout)
                 log_fh.flush()
 
         # --- Tổng kết cuối episode ---

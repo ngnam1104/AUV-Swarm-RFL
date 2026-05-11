@@ -80,7 +80,9 @@ run_step() {
     echo "[$stamp] CMD: $*" | tee -a "$log_file"
 
     set +e
-    PYTHONUNBUFFERED=1 "$@" 2>&1 | tee -a "$log_file"
+    # Đẩy stderr (tqdm bar) ra terminal (descriptor 2 > &2)
+    # Đẩy stdout (metrics) vào pipeline.log (descriptor 1 qua tee)
+    PYTHONUNBUFFERED=1 "$@" 2>&2 1> >(tee -a "$log_file")
     local exit_code="${PIPESTATUS[0]}"
     set -e
 
