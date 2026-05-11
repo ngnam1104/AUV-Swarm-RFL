@@ -75,24 +75,24 @@ run_step() {
 
     local stamp
     stamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    echo ""
-    echo "[$stamp] ===== START: $name =====" | tee -a "$log_file"
-    echo "[$stamp] CMD: $*" | tee -a "$log_file"
+    # Ghi vào file log (không in ra màn hình)
+    echo "" >> "$log_file"
+    echo "[$stamp] ===== START: $name =====" >> "$log_file"
+    echo "[$stamp] CMD: $*" >> "$log_file"
 
     set +e
-    # Đẩy stderr (tqdm bar) ra terminal (descriptor 2 > &2)
-    # Đẩy stdout (metrics) vào pipeline.log (descriptor 1 qua tee)
-    PYTHONUNBUFFERED=1 "$@" 2>&2 1> >(tee -a "$log_file")
+    # 1>> "$log_file": Ghi metrics (stdout) thẳng vào file, không hiện terminal
+    # 2>&2: Giữ nguyên stderr (tqdm bar) trên terminal
+    PYTHONUNBUFFERED=1 "$@" 1>> "$log_file" 2>&2
     local exit_code="${PIPESTATUS[0]}"
     set -e
 
     stamp="$(date '+%Y-%m-%d %H:%M:%S')"
     if [ "$exit_code" -ne 0 ]; then
-        echo "[$stamp] FAIL: $name (exit=$exit_code)" | tee -a "$log_file"
-        echo "[WARN] Step '$name' failed with exit=$exit_code — continuing pipeline..." | tee -a "$log_file"
+        echo "[$stamp] FAIL: $name (exit=$exit_code)" >> "$log_file"
         return 0
     fi
-    echo "[$stamp] DONE: $name" | tee -a "$log_file"
+    echo "[$stamp] DONE: $name" >> "$log_file"
 }
 
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
