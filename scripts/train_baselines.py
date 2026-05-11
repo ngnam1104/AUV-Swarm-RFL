@@ -211,16 +211,6 @@ class StepInfoCallback(BaseCallback):
                 self._log_file.write(timing_line + "\n")
                 self._log_file.flush()
         return True
-                f"eval={timing.get('evaluate_sec', 0):.2f}s "
-                f"(every {timing.get('eval_interval', 'n/a')} steps, ran={timing.get('should_evaluate', False)}) | "
-                f"agg={timing.get('aggregate_sec', 0):.2f}s | "
-                f"slowest={timing.get('slowest_stage', 'n/a')}"
-            )
-            # print(timing_line, flush=True) # Chỉ ghi vào log file, không in ra terminal
-            if self._log_file is not None:
-                self._log_file.write(timing_line + "\n")
-                self._log_file.flush()
-        return True
 
 
 def make_env(config: SimpleNamespace):
