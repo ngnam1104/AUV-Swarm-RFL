@@ -1,3 +1,1 @@
-
-Eval RL: Thuê GPU để train
-<!-- Triển khai Research_Proposal -->
+Slide + Latex: Vì sao dùng FL ? Có các kĩ thuật khác nhau nhưng vì sao không dùng cái khác

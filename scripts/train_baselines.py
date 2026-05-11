@@ -52,11 +52,12 @@ def save_metrics_series(metrics_list: list[dict], out_csv: str) -> None:
 
 
 class EpisodeMetricsCallback(BaseCallback):
-    def __init__(self, label: str, target_episodes: int, verbose: int = 0, print_every_episode: int = 1):
+    def __init__(self, label: str, target_episodes: int, verbose: int = 0, print_every_episode: int = 1, model_out_prefix: str | None = None):
         super().__init__(verbose)
         self.label = label
         self.target_episodes = target_episodes
         self.print_every_episode = max(1, int(print_every_episode))
+        self.model_out_prefix = model_out_prefix
         self.episode_metrics: list[dict] = []
 
     def _on_step(self) -> bool:
@@ -75,13 +76,20 @@ class EpisodeMetricsCallback(BaseCallback):
                     "avg_comm": float(info.get("accumulated_comm", 0.0)) / step_idx,
                 }
                 self.episode_metrics.append(metrics)
-                if len(self.episode_metrics) % self.print_every_episode == 0:
+                current_ep = len(self.episode_metrics)
+                
+                if current_ep % self.print_every_episode == 0:
                     print(
-                        f"[{self.label}] Episode {len(self.episode_metrics)} | "
+                        f"[{self.label}] Episode {current_ep} | "
                         f"cost={metrics['accumulated_cost']:.4f} | avg_delay={metrics['avg_delay']:.4f}s | "
                         f"avg_energy={metrics['avg_energy']:.4f}J | avg_reward={metrics['avg_reward']:.4f}",
                         flush=True,
                     )
+                
+                if self.model_out_prefix and current_ep % 100 == 0:
+                    save_path = f"{self.model_out_prefix}_ep{current_ep}"
+                    self.model.save(save_path)
+                    print(f"[{self.label}] Saved checkpoint to {save_path}", flush=True)
         
         if len(self.episode_metrics) >= self.target_episodes:
             return False
@@ -180,7 +188,7 @@ def train_ppo(
 ) -> list[float]:
     vec_env = DummyVecEnv([lambda: make_env(config)])
     callback = [
-        EpisodeMetricsCallback(label="PPO", target_episodes=episodes, print_every_episode=1),
+        EpisodeMetricsCallback(label="PPO", target_episodes=episodes, print_every_episode=1, model_out_prefix=model_out),
         StepInfoCallback(
             label="PPO",
             print_every_steps=print_every_steps,
@@ -549,9 +557,9 @@ def main() -> None:
         "--algorithms",
         type=str,
         nargs="+",
-        default=["ppo", "sac", "td3", "ddpg", "a2c", "greedy", "random"],
+        default=["ppo", "random", "greedy"],
         choices=["ppo", "sac", "td3", "ddpg", "a2c", "greedy", "random"],
-        help="Algorithms to run (default: all 7)",
+        help="Algorithms to run (default: ppo, random, greedy)",
     )
     parser.add_argument("--out-dir", type=str, default="results/fig_7", help="Output directory")
     parser.add_argument("--enable-early-stopping", action="store_true", help="Enable early stopping in FL simulator")

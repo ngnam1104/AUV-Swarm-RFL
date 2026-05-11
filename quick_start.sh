@@ -100,17 +100,17 @@ echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_
 
 
 # ---------------------------------------------------------------------------
-# 7. Bước 2 — Train ALL 7 RL algorithms (bootstrap cho Scheme Comparison)
+# 7. Bước 2 — Train 3 RL algorithms (bootstrap cho Scheme Comparison)
 #    Dùng --out-dir results/fig_7  (PPO model cần ở đây để Scheme 1 load)
 # ---------------------------------------------------------------------------
-run_step "Train 7 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+run_step "Train 3 RL algorithms bootstrap ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/train_baselines.py \
         --m "$M" \
         --max-fl-rounds 1000 \
         --episodes "$EPISODES" \
         --eval-interval 5 \
         --enable-early-stopping \
-        --algorithms ppo sac td3 ddpg a2c greedy random \
+        --algorithms ppo greedy random \
         --parallel \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
@@ -128,9 +128,9 @@ run_step "Plot Figure 7 bootstrap" "$PIPELINE_LOG" \
 
 # ---------------------------------------------------------------------------
 # 9. Bước 4 — Scheme Comparison & Ablation (Figure 4, 5, 6)
-#    PPO model được load từ results/fig_7/ppo_baseline_model
+#    PPO model được load từ results/fig_7/ppo_baseline_model_ep100
 # ---------------------------------------------------------------------------
-PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model"
+PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model_ep100"
 
 # Kiểm tra model tồn tại (có thể là .zip hoặc không có extension)
 if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
