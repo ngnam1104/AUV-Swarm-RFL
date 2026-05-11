@@ -172,15 +172,17 @@ class StepInfoCallback(BaseCallback):
         max_steps = info.get('max_steps', 1000)
 
         # Quản lý FL progress bar (tầng dưới)
-        if self.fl_pbar is None or step_idx <= 1:
-            if self.fl_pbar is not None:
-                self.fl_pbar.close()
+        if self.fl_pbar is None:
             self.fl_pbar = tqdm(
                 total=max_steps, 
-                desc=f" └─ {self.label} FL", 
+                desc=f" └─ {self.label:>6} FL", 
                 position=self.pos + 3, # Đặt ở phía dưới các RL bars
                 leave=False
             )
+            
+        if step_idx <= 1:
+            self.fl_pbar.reset(total=max_steps)
+            self.fl_pbar.refresh()
         
         self.fl_pbar.n = step_idx
         self.fl_pbar.set_postfix(acc=f"{info.get('accuracy', 0):.4f}")
@@ -488,9 +490,11 @@ def run_policy_free_baseline(
         done = False
         last_info = {}
 
-        if fl_pbar is not None:
-            fl_pbar.close()
-        fl_pbar = tqdm(total=config.max_fl_rounds, desc=f" └─ {mode.upper()} FL", position=pos+3, leave=False)
+        if fl_pbar is None:
+            fl_pbar = tqdm(total=config.max_fl_rounds, desc=f" └─ {mode.upper():>6} FL", position=pos+3, leave=False)
+            
+        fl_pbar.reset(total=config.max_fl_rounds)
+        fl_pbar.refresh()
 
         while not done:
             if mode == "random":
