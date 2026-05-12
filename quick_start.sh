@@ -100,27 +100,25 @@ run_step() {
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
 
 # ---------------------------------------------------------------------------
-# Step 1 — Train RL baselines (PPO + Greedy + Random)
+# Step 1 — Train PPO baseline
 #
 #   Output:
 #     - PPO model  : results/fig_7/ppo_baseline_model.zip
-#     - Step logs  : results/logs/fig_7_baselines/{ppo,greedy,random}_*.log
-#     - Metrics CSV: results/fig_7/{ppo,greedy,random}_metrics.csv
+#     - Step logs  : results/logs/fig_7_baselines/ppo_steps.log
+#     - Metrics CSV: results/fig_7/ppo_metrics.csv
 # ---------------------------------------------------------------------------
-run_step "Train RL baselines ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+run_step "Train PPO baseline ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/train_baselines.py \
         --m "$M" \
         --max-fl-rounds 1000 \
         --episodes "$EPISODES" \
         --eval-interval 5 \
         --enable-early-stopping \
-        --algorithms ppo greedy random \
-        --parallel \
-        --max-parallel-workers 3 \
+        --algorithms ppo \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
         --log-dir "$LOG_DIR/fig_7_baselines" || {
-    echo "[ERROR] Baseline training step failed. Pipeline cannot continue without trained models." >&2
+    echo "[ERROR] PPO training failed. Pipeline cannot continue." >&2
     echo "        Check $PIPELINE_LOG for details." >&2
     exit 1
 }
@@ -141,7 +139,6 @@ run_step "Plot Figure 7" "$PIPELINE_LOG" \
 # Step 3 — Scheme Comparison & Ablation (Figures 4, 5, 6)
 #
 #   PPO model loaded from: results/fig_7/ppo_baseline_model[.zip]
-#   (saved by Step 1 via train_baselines.py --model-out)
 #   Output: results/eval_schemes/
 # ---------------------------------------------------------------------------
 PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model"
@@ -157,10 +154,10 @@ if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
             --out-dir "$RESULTS_DIR/eval_schemes"
 else
     echo "[ERROR] PPO model not found at ${PPO_MODEL_PATH}[.zip]" | tee -a "$PIPELINE_LOG"
-    echo "        Step 1 (baseline training) likely failed or PPO did not save correctly." | tee -a "$PIPELINE_LOG"
-    echo "        Re-run: python scripts/train_baselines.py --algorithms ppo --out-dir $RESULTS_DIR/fig_7" | tee -a "$PIPELINE_LOG"
+    echo "        Step 1 (PPO training) likely failed or did not save correctly." | tee -a "$PIPELINE_LOG"
     exit 1
 fi
+
 
 # ---------------------------------------------------------------------------
 # Done
