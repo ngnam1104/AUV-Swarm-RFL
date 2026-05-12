@@ -115,17 +115,15 @@ class SchemeEvaluator:
         return cfg
 
     def _load_model(self):
-        """Load PPO model with compatibility shim for PyTorch 2.x + SB3.
+        """Load PPO model — PyTorch 2.x / SB3 2.8 compatibility fix.
 
-        SB3 opens the .zip with zipfile and calls torch.load() on a
-        ZipExtFile obtained via ZipFile.open().  With ZIP_DEFLATED archives
-        that ZipExtFile is *non-seekable*, which causes torch._C.PyTorchFileReader
-        (miniz) to fail in PyTorch >= 2.x.  Additionally, SB3 2.8 uses
-        weights_only=True which is incompatible with some checkpoint formats.
+        Root cause: torch._C.PyTorchFileReader has a miniz bug in memory-buffer
+        mode — it fails reading .data/serialization_id from any Python stream
+        (BytesIO, ZipExtFile) even when seekable.  Only torch.load(filepath_str)
+        (C-level file I/O) reliably works.
 
-        Fix strategy:
-          1. Repack the archive as ZIP_STORED  -> ZipExtFile becomes seekable.
-          2. Temporarily override torch.load with weights_only=False during load.
+        Fix: temporarily replace load_from_zip_file in SB3's base_class module
+        namespace with a version that extracts to disk and uses file paths.
         """
         candidates = [self.model_path, f"{self.model_path}.zip"]
         zip_path = next(
@@ -134,57 +132,42 @@ class SchemeEvaluator:
         if zip_path is None:
             return None
 
-        tmp_dir = tempfile.mkdtemp(prefix="ppo_load_")
-        try:
-            # 1. Extract original archive to real files on disk
-            with _zipfile.ZipFile(zip_path, "r") as orig_zf:
-                orig_zf.extractall(tmp_dir)
+        def _file_path_loader(load_path, **_kw):
+            """Drop-in for SB3's load_from_zip_file using disk-path torch.load."""
+            from stable_baselines3.common.save_util import json_to_data
 
-            # 2. Re-save every .pth file through torch.load(filepath) + torch.save()
-            #    Loading from a file *path* (not a stream) works with PyTorch 2.x.
-            #    Re-saving normalises the internal miniz zip format so it can later
-            #    be read from a memory buffer (BytesIO / ZipExtFile) as well.
-            for fname in os.listdir(tmp_dir):
-                if not fname.endswith(".pth"):
-                    continue
-                fp = os.path.join(tmp_dir, fname)
-                try:
-                    obj = _torch.load(fp, map_location="cpu", weights_only=False)
-                    _torch.save(obj, fp)
-                except Exception as resave_err:
-                    print(f"[WARN] Could not re-save {fname}: {resave_err}", flush=True)
-
-            # 3. Repack as ZIP_STORED so ZipExtFile is seekable for PyTorch reader
-            repacked = os.path.join(tmp_dir, "_model.zip")
-            with _zipfile.ZipFile(repacked, "w", _zipfile.ZIP_STORED) as out_zf:
-                for root, _, files in os.walk(tmp_dir):
-                    for fname in files:
-                        if fname == "_model.zip":
-                            continue
-                        fp = os.path.join(root, fname)
-                        arcname = os.path.relpath(fp, tmp_dir)
-                        out_zf.write(fp, arcname)
-
-            # 4. Temporarily patch torch.load to force weights_only=False
-            #    (SB3 2.8 uses weights_only=True which is stricter)
-            _orig_load = _torch.load
-
-            def _compat_load(f, *a, **kw):
-                kw["weights_only"] = False
-                if hasattr(f, "read") and not (
-                    hasattr(f, "seek") and hasattr(f, "tell")
-                ):
-                    f = io.BytesIO(f.read())
-                return _orig_load(f, *a, **kw)
-
-            _torch.load = _compat_load
+            tmp = tempfile.mkdtemp(prefix="ppo_inner_")
             try:
-                model = PPO.load(repacked)
-                print(f"[INFO] Loaded PPO model from: {zip_path}", flush=True)
-                return model
-            finally:
-                _torch.load = _orig_load  # always restore
+                with _zipfile.ZipFile(load_path, "r") as zf:
+                    zf.extractall(tmp)
 
+                data = json_to_data(open(os.path.join(tmp, "data")).read())
+
+                params = {}
+                for stem in ["policy", "policy.optimizer"]:
+                    fp = os.path.join(tmp, f"{stem}.pth")
+                    if os.path.exists(fp):
+                        params[stem] = _torch.load(
+                            fp, map_location="cpu", weights_only=False
+                        )
+
+                pv_fp = os.path.join(tmp, "pytorch_variables.pth")
+                pv = (
+                    _torch.load(pv_fp, map_location="cpu", weights_only=False)
+                    if os.path.exists(pv_fp)
+                    else {}
+                )
+                return data, params, pv
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+
+        import stable_baselines3.common.base_class as _sb3_base
+        _orig_fn = _sb3_base.load_from_zip_file
+        _sb3_base.load_from_zip_file = _file_path_loader
+        try:
+            model = PPO.load(zip_path)
+            print(f"[INFO] Loaded PPO model from: {zip_path}", flush=True)
+            return model
         except Exception as e:
             print(
                 f"[WARN] Failed to load model from '{zip_path}': {e}\n"
@@ -193,7 +176,8 @@ class SchemeEvaluator:
             )
             return None
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            _sb3_base.load_from_zip_file = _orig_fn
+
 
 
 

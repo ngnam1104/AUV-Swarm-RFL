@@ -290,8 +290,17 @@ def train_ppo(
     model.learn(total_timesteps=total_timesteps, callback=callback)
 
     if model_out:
-        os.makedirs(os.path.dirname(model_out), exist_ok=True)
-        model.save(model_out)
+        out_dir = os.path.dirname(model_out)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        tmp_final = f"{model_out}.final_tmp"
+        model.save(tmp_final)
+        tmp_zip = f"{tmp_final}.zip"
+        dest_zip = f"{model_out}.zip"
+        if os.path.exists(tmp_zip):
+            os.replace(tmp_zip, dest_zip)
+        elif os.path.exists(tmp_final):
+            os.replace(tmp_final, model_out)
 
     vec_env.close()
     return callback[0].episode_metrics
