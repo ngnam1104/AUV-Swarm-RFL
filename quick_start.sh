@@ -90,9 +90,11 @@ run_step() {
     stamp="$(date '+%Y-%m-%d %H:%M:%S')"
     if [ "$exit_code" -ne 0 ]; then
         echo "[$stamp] FAIL: $name (exit=$exit_code)" >> "$log_file"
-        return 0
+        echo "[FAIL] Step '$name' exited with code $exit_code. See: $log_file" >&2
+    else
+        echo "[$stamp] DONE: $name" >> "$log_file"
     fi
-    echo "[$stamp] DONE: $name" >> "$log_file"
+    return "$exit_code"
 }
 
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
@@ -117,7 +119,11 @@ run_step "Train RL baselines ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
         --max-parallel-workers 3 \
         --print-every-steps 10 \
         --out-dir "$RESULTS_DIR/fig_7" \
-        --log-dir "$LOG_DIR/fig_7_baselines"
+        --log-dir "$LOG_DIR/fig_7_baselines" || {
+    echo "[ERROR] Baseline training step failed. Pipeline cannot continue without trained models." >&2
+    echo "        Check $PIPELINE_LOG for details." >&2
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Step 2 — Plot Figure 7 (convergence / cost curves)
@@ -150,7 +156,10 @@ if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
             --enable-early-stopping \
             --out-dir "$RESULTS_DIR/eval_schemes"
 else
-    echo "[WARN] PPO model not found at $PPO_MODEL_PATH — skipping Scheme Comparison." | tee -a "$PIPELINE_LOG"
+    echo "[ERROR] PPO model not found at ${PPO_MODEL_PATH}[.zip]" | tee -a "$PIPELINE_LOG"
+    echo "        Step 1 (baseline training) likely failed or PPO did not save correctly." | tee -a "$PIPELINE_LOG"
+    echo "        Re-run: python scripts/train_baselines.py --algorithms ppo --out-dir $RESULTS_DIR/fig_7" | tee -a "$PIPELINE_LOG"
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------

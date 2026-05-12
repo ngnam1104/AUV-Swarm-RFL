@@ -5,8 +5,15 @@ import sys
 from dataclasses import asdict
 from types import SimpleNamespace
 
+import io
+import shutil
+import tempfile
+import zipfile as _zipfile
+
 import numpy as np
+import torch as _torch
 from stable_baselines3 import PPO
+
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -108,21 +115,71 @@ class SchemeEvaluator:
         return cfg
 
     def _load_model(self):
+        """Load PPO model with compatibility shim for PyTorch 2.x + SB3.
+
+        SB3 opens the .zip with zipfile and calls torch.load() on a
+        ZipExtFile obtained via ZipFile.open().  With ZIP_DEFLATED archives
+        that ZipExtFile is *non-seekable*, which causes torch._C.PyTorchFileReader
+        (miniz) to fail in PyTorch >= 2.x.  Additionally, SB3 2.8 uses
+        weights_only=True which is incompatible with some checkpoint formats.
+
+        Fix strategy:
+          1. Repack the archive as ZIP_STORED  -> ZipExtFile becomes seekable.
+          2. Temporarily override torch.load with weights_only=False during load.
+        """
         candidates = [self.model_path, f"{self.model_path}.zip"]
-        for path in candidates:
-            if not (path and os.path.exists(path)):
-                continue
+        zip_path = next(
+            (p for p in candidates if p and os.path.exists(p)), None
+        )
+        if zip_path is None:
+            return None
+
+        tmp_dir = tempfile.mkdtemp(prefix="ppo_load_")
+        try:
+            # 1. Extract original (ZIP_DEFLATED) archive
+            with _zipfile.ZipFile(zip_path, "r") as orig_zf:
+                orig_zf.extractall(tmp_dir)
+
+            # 2. Repack as ZIP_STORED so ZipExtFile is seekable
+            repacked = os.path.join(tmp_dir, "_model.zip")
+            with _zipfile.ZipFile(repacked, "w", _zipfile.ZIP_STORED) as out_zf:
+                for root, _, files in os.walk(tmp_dir):
+                    for fname in files:
+                        if fname == "_model.zip":
+                            continue
+                        fp = os.path.join(root, fname)
+                        arcname = os.path.relpath(fp, tmp_dir)
+                        out_zf.write(fp, arcname)
+
+            # 3. Temporarily patch torch.load: force weights_only=False for
+            #    compatibility with checkpoints saved by older SB3/PyTorch.
+            _orig_load = _torch.load
+
+            def _compat_load(f, *a, **kw):
+                kw["weights_only"] = False
+                if hasattr(f, "read") and not (
+                    hasattr(f, "seek") and hasattr(f, "tell")
+                ):
+                    f = io.BytesIO(f.read())
+                return _orig_load(f, *a, **kw)
+
+            _torch.load = _compat_load
             try:
-                model = PPO.load(path)
-                print(f"[INFO] Loaded PPO model from: {path}", flush=True)
+                model = PPO.load(repacked)
+                print(f"[INFO] Loaded PPO model from: {zip_path}", flush=True)
                 return model
-            except Exception as e:
-                print(
-                    f"[WARN] Failed to load model from '{path}': {e}\n"
-                    f"       The file may be corrupted. Delete it and re-run training.",
-                    flush=True,
-                )
-        return None
+            finally:
+                _torch.load = _orig_load  # always restore
+
+        except Exception as e:
+            print(
+                f"[WARN] Failed to load model from '{zip_path}': {e}\n"
+                f"       Delete it and re-run training.",
+                flush=True,
+            )
+            return None
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
     def _fixed_physics(self, mode: str) -> tuple[np.ndarray, np.ndarray, float, float]:

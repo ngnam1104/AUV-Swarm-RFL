@@ -99,14 +99,34 @@ class EpisodeMetricsCallback(BaseCallback):
                     self.pbar.update(1)
 
                 if self.model_out_prefix:
-                    # Lưu "latest" checkpoint sau mỗi episode (overwrite)
-                    # => đảm bảo luôn có model mới nhất nếu training bị interrupt
-                    self.model.save(self.model_out_prefix)
+                    # Atomic save: ghi ra file .tmp trước, rồi rename
+                    # => nếu disk full hoặc bị kill giữa chừng, file cũ vẫn còn nguyên
+                    tmp_path = f"{self.model_out_prefix}.tmp"
+                    try:
+                        self.model.save(tmp_path)
+                        final_zip = f"{tmp_path}.zip"
+                        dest_zip  = f"{self.model_out_prefix}.zip"
+                        if os.path.exists(final_zip):
+                            os.replace(final_zip, dest_zip)
+                        elif os.path.exists(tmp_path):
+                            os.replace(tmp_path, self.model_out_prefix)
+                    except Exception as _save_err:
+                        print(f"[WARN] Checkpoint save failed (disk full?): {_save_err}", flush=True)
 
-                    # Lưu checkpoint có tên riêng mỗi 100 episode
+                    # Lưu checkpoint có tên riêng mỗi 50 episode (atomic)
                     if current_ep % 50 == 0:
-                        save_path = f"{self.model_out_prefix}_ep{current_ep}"
-                        self.model.save(save_path)
+                        ck_prefix = f"{self.model_out_prefix}_ep{current_ep}"
+                        ck_tmp    = f"{ck_prefix}.tmp"
+                        try:
+                            self.model.save(ck_tmp)
+                            ck_final_zip = f"{ck_tmp}.zip"
+                            ck_dest_zip  = f"{ck_prefix}.zip"
+                            if os.path.exists(ck_final_zip):
+                                os.replace(ck_final_zip, ck_dest_zip)
+                            elif os.path.exists(ck_tmp):
+                                os.replace(ck_tmp, ck_prefix)
+                        except Exception as _ck_err:
+                            print(f"[WARN] Periodic checkpoint ep{current_ep} save failed: {_ck_err}", flush=True)
 
         if len(self.episode_metrics) >= self.target_episodes:
             return False
