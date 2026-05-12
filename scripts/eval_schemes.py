@@ -136,11 +136,25 @@ class SchemeEvaluator:
 
         tmp_dir = tempfile.mkdtemp(prefix="ppo_load_")
         try:
-            # 1. Extract original (ZIP_DEFLATED) archive
+            # 1. Extract original archive to real files on disk
             with _zipfile.ZipFile(zip_path, "r") as orig_zf:
                 orig_zf.extractall(tmp_dir)
 
-            # 2. Repack as ZIP_STORED so ZipExtFile is seekable
+            # 2. Re-save every .pth file through torch.load(filepath) + torch.save()
+            #    Loading from a file *path* (not a stream) works with PyTorch 2.x.
+            #    Re-saving normalises the internal miniz zip format so it can later
+            #    be read from a memory buffer (BytesIO / ZipExtFile) as well.
+            for fname in os.listdir(tmp_dir):
+                if not fname.endswith(".pth"):
+                    continue
+                fp = os.path.join(tmp_dir, fname)
+                try:
+                    obj = _torch.load(fp, map_location="cpu", weights_only=False)
+                    _torch.save(obj, fp)
+                except Exception as resave_err:
+                    print(f"[WARN] Could not re-save {fname}: {resave_err}", flush=True)
+
+            # 3. Repack as ZIP_STORED so ZipExtFile is seekable for PyTorch reader
             repacked = os.path.join(tmp_dir, "_model.zip")
             with _zipfile.ZipFile(repacked, "w", _zipfile.ZIP_STORED) as out_zf:
                 for root, _, files in os.walk(tmp_dir):
@@ -151,8 +165,8 @@ class SchemeEvaluator:
                         arcname = os.path.relpath(fp, tmp_dir)
                         out_zf.write(fp, arcname)
 
-            # 3. Temporarily patch torch.load: force weights_only=False for
-            #    compatibility with checkpoints saved by older SB3/PyTorch.
+            # 4. Temporarily patch torch.load to force weights_only=False
+            #    (SB3 2.8 uses weights_only=True which is stricter)
             _orig_load = _torch.load
 
             def _compat_load(f, *a, **kw):
@@ -180,6 +194,7 @@ class SchemeEvaluator:
             return None
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 
     def _fixed_physics(self, mode: str) -> tuple[np.ndarray, np.ndarray, float, float]:
