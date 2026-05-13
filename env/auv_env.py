@@ -180,9 +180,9 @@ class AUVSwarmEnv(gym.Env):
 
         # 5b. Phạt nặng nếu hết rounds mà chưa hội tụ (khuyến khích RL tìm hội tụ sớm).
         if terminated and not is_converged:
-            reward -= 5000.0
+            reward -= 50.0
 
-        # 6. Cập nhật State (Eq. 41)
+        # 6. Cập nhật State (Eq. 41): s(t) = a(t-1)
         self.current_state_norm = action.astype(np.float32)
 
         info = {

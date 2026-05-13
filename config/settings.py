@@ -51,7 +51,7 @@ class FLConfig:
 class RLConfig:
     penalty: float = 10.0               # Penalty vi phạm ràng buộc năng lượng Eq. 39-40 (constrained RL)
     ppo_lr: float = 3e-4                # Learning rate của PPO
-    ppo_n_steps: int = 1000             # Số step thu thập trước khi update PPO
+    ppo_n_steps: int = 256              # Số step thu thập trước khi update PPO (giảm variance, ~4 mini-batch/episode)
     ppo_batch_size: int = 250           # Batch size của PPO
     ppo_n_epochs: int = 10              # Số epoch update PPO
     ppo_gamma: float = 0.99             # Eq. 44: Discount factor ξ (paper không cho giá trị cụ thể)

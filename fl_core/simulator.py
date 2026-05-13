@@ -248,3 +248,6 @@ class FLSimulator:
         self.controller.lazy_consecutive[:] = 0
         self.last_accuracy = 0.0
         self.early_stopping.reset()
+        # Fix: Reset rng về seed cố định để loại bỏ side-effect tích lũy
+        # qua các episode (rng bị "consume" → active node selection ngẫu nhiên)
+        self.rng = np.random.default_rng(seed=42)
