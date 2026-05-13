@@ -77,7 +77,7 @@ class FLSimulator:
         )
         self.last_timing_stats = {}
         self.last_accuracy = 0.0
-        self.early_stopping = EarlyStopping(patience=20, min_delta=0.003)
+        self.early_stopping = EarlyStopping(patience=20, min_delta=0.005)
 
     def sync_run_step(self, beta: float, rnd: int) -> tuple[float, list[int], float, bool]:
         """
