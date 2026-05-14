@@ -43,11 +43,14 @@ def run_experiment(
     done_jobs = 0
 
     for m in m_values:
+        # Dynamically determine the model path based on M
+        current_model_path = model_path.format(M=m) if "{M}" in model_path else model_path
+        
         cfg = SchemeEvaluator.build_config(m_value=m, eval_interval=1)
         evaluator = SchemeEvaluator(
             config=cfg,
             rounds=rounds,
-            model_path=model_path,
+            model_path=current_model_path,
             lag_threshold=lag_threshold,
             beta_heuristic=beta_heuristic,
             enable_early_stopping=enable_early_stopping,
@@ -100,13 +103,15 @@ def run_fig5_experiment(
     done_jobs = 0
     
     for m in m_values:
+        current_model_path = model_path.format(M=m) if "{M}" in model_path else model_path
+        
         print(f"[INFO] Running Fig 5 ablation for M={m}")
         for label, base_scheme, tau in ablation_set:
             cfg = SchemeEvaluator.build_config(m_value=m, eval_interval=1)
             evaluator = SchemeEvaluator(
                 config=cfg,
                 rounds=rounds,
-                model_path=model_path,
+                model_path=current_model_path,
                 beta_heuristic=beta_heuristic,
                 enable_early_stopping=enable_early_stopping,
                 force_active_rounds=tau,
@@ -157,6 +162,8 @@ def plot_by_scheme(rows: List[Dict], m_values: List[int], metric_key: str, ylabe
         by_m = {int(r["M"]): float(r[metric_key]) for r in scheme_rows}
         x = [int(m) for m in m_values]
         y = [by_m.get(int(m), float("nan")) for m in x]
+        if metric_key == "accuracy":
+            y = [val * 100 for val in y]
 
         plt.plot(
             x,
@@ -186,6 +193,7 @@ def plot_fig5(rows: List[Dict], m_values: List[int], output_path: str) -> None:
         by_m = {int(r["M"]): float(r["accuracy"]) for r in label_rows}
         x = [int(m) for m in m_values]
         y = [by_m.get(int(m), float("nan")) for m in x]
+        y = [val * 100 for val in y]
         
         plt.plot(
             x,
@@ -196,8 +204,8 @@ def plot_fig5(rows: List[Dict], m_values: List[int], output_path: str) -> None:
         )
         
     plt.xlabel("Number of AUVs (M)")
-    plt.ylabel("Accuracy")
-    plt.title("Figure 5: Comparison of accuracies for different control models")
+    plt.ylabel("Final Accuracy (%)")
+    plt.title("Figure 5: Comparison of Accuracy (%) for Different Control Models")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -215,7 +223,7 @@ def main() -> None:
         default=[9, 16, 25, 36, 49],
         help="AUV counts to evaluate",
     )
-    parser.add_argument("--model-path", type=str, default="./models/ppo_auv_final", help="Path to trained PPO model")
+    parser.add_argument("--model-path", type=str, default="./models/ppo_auv_final", help="Path to trained PPO model. Use {M} as a placeholder for dynamic M values (e.g., results/fig_7_M{M}/ppo_baseline_model)")
     parser.add_argument("--lag-threshold", type=float, default=1e4, help="LAG threshold")
     parser.add_argument(
         "--beta-heuristic",
@@ -266,13 +274,13 @@ def main() -> None:
 
     # --- 7 đồ thị so sánh scheme theo từng chỉ số ---
     scheme_plots = [
-        ("figure4a_avg_communication_times.png", "avg_communication_times", "Average Communication Times", "Fig 4(a): Average Comm Times vs M"),
-        ("figure4b_accuracy.png",                "accuracy",                "Accuracy",                    "Fig 4(b): Accuracy vs M"),
-        ("figure_avg_delay.png",                 "avg_delay",               "Average Delay (s)",           "Average Delay vs M"),
-        ("figure_avg_energy.png",                "avg_energy",              "Average Energy (J)",          "Average Energy vs M"),
-        ("figure6_cost.png",                     "accumulated_cost",        "Accumulated Cost",            "Fig 6: Accumulated Cost vs M"),
-        ("figure_avg_reward.png",                "avg_reward",              "Average Reward",              "Average Reward vs M"),
-        ("figure_converged_round.png",           "rounds",                  "Converged Round",             "Converged Round vs M"),
+        ("figure4a_total_communication_times.png", "communication_times",   "Total Communication Count (Times)", "Fig 4(a): Total Communication Count vs M"),
+        ("figure4b_accuracy.png",                  "accuracy",              "Final Accuracy (%)",                "Fig 4(b): Final Accuracy (%) vs M"),
+        ("figure_total_delay.png",                 "time_consumption",      "Total System Latency (s)",          "Total Latency until Convergence vs M"),
+        ("figure_total_energy.png",                "energy_consumption",    "Total Energy Consumption (J)",      "Total Energy Consumption vs M"),
+        ("figure6_cost.png",                       "accumulated_cost",      "Accumulated System Cost",           "Fig 6: Accumulated System Cost vs M"),
+        ("figure_total_reward.png",                "total_reward",          "Total Accumulated Reward",          "Total Accumulated Reward vs M"),
+        ("figure_converged_round.png",             "rounds",                "Convergence Rounds (Count)",        "Number of Rounds to Converge vs M"),
     ]
     saved_paths = [results_csv, fig5_csv]
     for fname, key, ylabel, title in scheme_plots:

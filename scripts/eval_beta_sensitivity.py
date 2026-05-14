@@ -175,6 +175,8 @@ def plot_metric(
     plt.figure(figsize=(8, 5))
 
     all_m = sorted({int(r["M"]) for r in rows})
+    markers = {9: 'o', 16: 's', 25: '^', 36: 'D', 49: 'v'}
+
     for m_value in all_m:
         filtered = [r for r in rows if int(r["M"]) == m_value]
         filtered.sort(key=lambda x: float(x["beta"]))
@@ -182,7 +184,7 @@ def plot_metric(
         x = [float(r["beta"]) for r in filtered]
         y = [float(r[metric_key]) for r in filtered]
 
-        plt.plot(x, y, marker="o", linewidth=2, label=f"M={m_value}")
+        plt.plot(x, y, marker=markers.get(m_value, 'o'), linewidth=2, label=f"M={m_value}")
 
     plt.xlabel("beta")
     plt.ylabel(ylabel)
@@ -197,16 +199,17 @@ def plot_metric(
 def plot_latency_reward_cost(rows: list[dict], output_path: str) -> None:
     plt.figure(figsize=(18, 5))
     all_m = sorted({int(r["M"]) for r in rows})
+    markers = {9: 'o', 16: 's', 25: '^', 36: 'D', 49: 'v'}
     
     # Latency
     plt.subplot(1, 3, 1)
     for m_value in all_m:
         filtered = [r for r in rows if int(r["M"]) == m_value]
         filtered.sort(key=lambda x: float(x["beta"]))
-        plt.plot([float(r["beta"]) for r in filtered], [float(r["time_consumption"]) for r in filtered], marker="o", lw=2, label=f"M={m_value}")
-    plt.xlabel("beta")
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["time_consumption"]) for r in filtered], marker=markers.get(m_value, 'o'), lw=2, label=f"M={m_value}")
+    plt.xlabel("Beta")
     plt.ylabel("Average Latency (s)")
-    plt.title("Latency vs beta")
+    plt.title("Average Latency Vs Beta")
     plt.grid(True, alpha=0.3)
     plt.legend()
     
@@ -215,10 +218,10 @@ def plot_latency_reward_cost(rows: list[dict], output_path: str) -> None:
     for m_value in all_m:
         filtered = [r for r in rows if int(r["M"]) == m_value]
         filtered.sort(key=lambda x: float(x["beta"]))
-        plt.plot([float(r["beta"]) for r in filtered], [float(r["reward_consumption"]) for r in filtered], marker="s", lw=2, label=f"M={m_value}")
-    plt.xlabel("beta")
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["reward_consumption"]) for r in filtered], marker=markers.get(m_value, 's'), lw=2, label=f"M={m_value}")
+    plt.xlabel("Beta")
     plt.ylabel("Average Reward")
-    plt.title("Reward vs beta")
+    plt.title("Average Reward Vs Beta")
     plt.grid(True, alpha=0.3)
     plt.legend()
     
@@ -227,10 +230,10 @@ def plot_latency_reward_cost(rows: list[dict], output_path: str) -> None:
     for m_value in all_m:
         filtered = [r for r in rows if int(r["M"]) == m_value]
         filtered.sort(key=lambda x: float(x["beta"]))
-        plt.plot([float(r["beta"]) for r in filtered], [float(r["cost_consumption"]) for r in filtered], marker="^", lw=2, label=f"M={m_value}")
-    plt.xlabel("beta")
+        plt.plot([float(r["beta"]) for r in filtered], [float(r["cost_consumption"]) for r in filtered], marker=markers.get(m_value, '^'), lw=2, label=f"M={m_value}")
+    plt.xlabel("Beta")
     plt.ylabel("Average Cost")
-    plt.title("Cost vs beta")
+    plt.title("Average Cost Vs Beta")
     plt.grid(True, alpha=0.3)
     plt.legend()
     
@@ -371,13 +374,13 @@ def main() -> None:
 
     # --- 7 đồ thị riêng biệt theo từng chỉ số ---
     plots = [
-        ("fig1_communication_times.png", "communication_times",  "Communication Times",    "Fig 1: Communication Times vs beta"),
-        ("fig2_accuracy.png",            "accuracy_round_1000",   "Accuracy",               "Fig 2: Accuracy vs beta"),
-        ("fig3_delay.png",               "time_consumption",      "Avg Delay (s)",          "Fig 3: Avg Delay vs beta"),
-        ("fig4_energy.png",              "energy_consumption",    "Avg Energy (J)",         "Fig 4: Avg Energy vs beta"),
-        ("fig5_cost.png",                "cost_consumption",      "Avg Cost",               "Fig 5: Avg Cost vs beta"),
-        ("fig6_reward.png",              "reward_consumption",    "Avg Reward",             "Fig 6: Avg Reward vs beta"),
-        ("fig7_converged_round.png",     "converged_round",       "Converged Round",        "Fig 7: Converged Round vs beta"),
+        ("fig1_comm_times.png",      "communication_times",  "Communication Times",    "Communication Times Vs Beta"),
+        ("fig2_accuracy.png",        "accuracy_round_1000",   "Accuracy",               "Accuracy Vs Beta"),
+        ("fig3_avg_delay.png",       "time_consumption",      "Average Latency (s)",    "Average Latency Vs Beta"),
+        ("fig4_avg_energy.png",      "energy_consumption",    "Average Energy (J)",     "Average Energy Vs Beta"),
+        ("fig5_avg_cost.png",        "cost_consumption",      "Average Cost",           "Average Cost Vs Beta"),
+        ("fig6_avg_reward.png",      "reward_consumption",    "Average Reward",         "Average Reward Vs Beta"),
+        ("fig7_converged_round.png", "converged_round",       "Converged Round",        "Converged Round Vs Beta"),
     ]
     saved_paths = [csv_path, log_path]
     for fname, key, ylabel, title in plots:

@@ -18,10 +18,6 @@ except Exception:
 
 SERIES_FILES = {
     "PPO (Proposed)": "ppo_metrics.csv",
-    "SAC":            "sac_metrics.csv",
-    "TD3":            "td3_metrics.csv",
-    "DDPG":           "ddpg_metrics.csv",
-    "A2C":            "a2c_metrics.csv",
     "Greedy":         "greedy_metrics.csv",
     "Random":         "random_metrics.csv",
 }
@@ -54,21 +50,20 @@ def smooth_curve(y: np.ndarray, sigma: float) -> np.ndarray:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot Figure 7 convergence from accumulated cost series.")
-    parser.add_argument("--input-dir", type=str, default="results/fig_7", help="Directory containing baseline csv files")
+    parser.add_argument("--input-dir", type=str, default="results/fig_7_M9", help="Directory containing baseline csv files")
     parser.add_argument("--sigma", type=float, default=2.0, help="Smoothing sigma")
     parser.add_argument("--out-dir", type=str, default="results/fig_7", help="Output directory")
-    parser.add_argument("--out-path", type=str, default="", help="Deprecated, use --out-dir")
     parser.add_argument("--enable-early-stopping", action="store_true", help="Dummy flag for compatibility")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
 
     metrics_to_plot = [
-        ("accumulated_cost", "Accumulated Cost", "figure7_accumulated_cost.png"),
-        ("avg_delay", "Average Delay (s)", "figure7_avg_delay.png"),
-        ("avg_energy", "Average Energy (J)", "figure7_avg_energy.png"),
-        ("avg_reward", "Average Reward", "figure7_avg_reward.png"),
-        ("avg_comm", "Average Communication Times", "figure7_avg_comm.png"),
+        ("accumulated_cost", "Accumulated System Cost",            "figure7_accumulated_cost.png"),
+        ("total_delay",      "Total Latency (s)",                  "figure7_total_delay.png"),
+        ("total_energy",     "Total Energy Consumption (J)",       "figure7_total_energy.png"),
+        ("total_reward",     "Total Accumulated Reward",           "figure7_total_reward.png"),
+        ("total_comm",       "Total Communication Count (Times)",  "figure7_total_comm.png"),
     ]
 
     for metric_col, ylabel, out_filename in metrics_to_plot:
@@ -83,13 +78,6 @@ def main() -> None:
         if not loaded:
             print(f"[WARN] No baseline data found for {metric_col}.")
             continue
-
-        for label, series in loaded.items():
-            if len(series) < 20:
-                print(
-                    f"[WARN] {label} has only {len(series)} episodes. "
-                    f"Figure 7 ({metric_col}) will be under-sampled and may look flat."
-                )
 
         plt.figure(figsize=(10, 6))
         for label, series in loaded.items():

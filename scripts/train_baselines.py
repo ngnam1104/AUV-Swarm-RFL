@@ -83,10 +83,10 @@ class EpisodeMetricsCallback(BaseCallback):
                 step_idx = max(1, info.get("step_idx", 1))
                 metrics = {
                     "accumulated_cost": float(info.get("accumulated_cost", np.nan)),
-                    "avg_delay": float(info.get("accumulated_delay", 0.0)) / step_idx,
-                    "avg_energy": float(info.get("accumulated_energy", 0.0)) / step_idx,
-                    "avg_reward": float(info.get("accumulated_reward", 0.0)) / step_idx,
-                    "avg_comm": float(info.get("accumulated_comm", 0.0)) / step_idx,
+                    "total_delay": float(info.get("accumulated_delay", 0.0)),
+                    "total_energy": float(info.get("accumulated_energy", 0.0)),
+                    "total_reward": float(info.get("accumulated_reward", 0.0)),
+                    "total_comm": float(info.get("accumulated_comm", 0.0)),
                 }
                 self.episode_metrics.append(metrics)
                 current_ep = len(self.episode_metrics)
@@ -94,7 +94,7 @@ class EpisodeMetricsCallback(BaseCallback):
                 if self.pbar is not None:
                     self.pbar.set_postfix(
                         cost=f"{metrics['accumulated_cost']:.2f}",
-                        rew=f"{metrics['avg_reward']:.2f}"
+                        rew=f"{metrics['total_reward']:.2f}"
                     )
                     self.pbar.update(1)
 
@@ -611,19 +611,18 @@ def run_policy_free_baseline(
                 log_fh.flush()
 
         # --- Tổng kết cuối episode ---
-        step_idx = max(1, last_info.get("step_idx", 1))
         metrics = {
             "accumulated_cost": float(last_info.get("accumulated_cost", np.nan)),
-            "avg_delay": float(last_info.get("accumulated_delay", 0.0)) / step_idx,
-            "avg_energy": float(last_info.get("accumulated_energy", 0.0)) / step_idx,
-            "avg_reward": float(last_info.get("accumulated_reward", 0.0)) / step_idx,
-            "avg_comm": float(last_info.get("accumulated_comm", 0.0)) / step_idx,
+            "total_delay": float(last_info.get("accumulated_delay", 0.0)),
+            "total_energy": float(last_info.get("accumulated_energy", 0.0)),
+            "total_reward": float(last_info.get("accumulated_reward", 0.0)),
+            "total_comm": float(last_info.get("accumulated_comm", 0.0)),
         }
         metrics_list.append(metrics)
 
         pbar.set_postfix(
             cost=f"{metrics['accumulated_cost']:.2f}",
-            rew=f"{metrics['avg_reward']:.2f}",
+            rew=f"{metrics['total_reward']:.2f}",
         )
         pbar.update(1)
 
@@ -631,10 +630,10 @@ def run_policy_free_baseline(
             ep_summary = (
                 f"[{mode.upper()}] === Episode {ep + 1}/{episodes} DONE | "
                 f"accumulated_cost={metrics['accumulated_cost']:.4f} | "
-                f"avg_delay={metrics['avg_delay']:.4f}s | "
-                f"avg_energy={metrics['avg_energy']:.4f}J | "
-                f"avg_comm={metrics['avg_comm']:.4f}s | "
-                f"avg_reward={metrics['avg_reward']:.4f} ===\n"
+                f"total_delay={metrics['total_delay']:.4f}s | "
+                f"total_energy={metrics['total_energy']:.4f}J | "
+                f"total_comm={metrics['total_comm']:.4f}s | "
+                f"total_reward={metrics['total_reward']:.4f} ===\n"
             )
             log_fh.write(ep_summary)
             log_fh.flush()

@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 # =============================================================================
-# quick_start.sh  —  Ubuntu / bash — AUV-Swarm-RFL experiment pipeline
+# quick_start.sh  —  Ubuntu / bash — AUV-Swarm-RFL full experiment pipeline
 #
-# Usage:
-#   bash quick_start.sh [WORKSPACE_ROOT] [EPISODES] [M]
+# Cách dùng:
+#   bash quick_start.sh [WORKSPACE_ROOT] [EPISODES] [ROUNDS]
 #
-# Defaults:
-#   WORKSPACE_ROOT = directory containing this script
+# Mặc định:
+#   WORKSPACE_ROOT = thư mục chứa script này
 #   EPISODES       = 1000
-#   M              = 9
+#   ROUNDS         = 1000
 # =============================================================================
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# 0. Input parameters
+# 0. Tham số đầu vào
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${1:-$SCRIPT_DIR}"
 EPISODES="${2:-1000}"
-M="${3:-9}"
+ROUNDS="${3:-1000}"
 
 cd "$WORKSPACE_ROOT"
 
 # ---------------------------------------------------------------------------
-# 1. Activate Conda environment
+# 1. Kích hoạt môi trường Conda
 # ---------------------------------------------------------------------------
 CONDA_ENV="auv_rfl"
 
@@ -51,13 +51,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PYTHON="python"
 
 # ---------------------------------------------------------------------------
-# 2. Install dependencies
-# ---------------------------------------------------------------------------
-echo "[INFO] Installing requirements..."
-pip install -r requirements.txt
-
-# ---------------------------------------------------------------------------
-# 3. Prepare results/logs directories
+# 2. Chuẩn bị thư mục results/logs
 # ---------------------------------------------------------------------------
 RESULTS_DIR="$WORKSPACE_ROOT/results"
 LOG_DIR="$RESULTS_DIR/logs"
@@ -66,7 +60,7 @@ mkdir -p "$LOG_DIR"
 PIPELINE_LOG="$LOG_DIR/pipeline.log"
 
 # ---------------------------------------------------------------------------
-# 4. run_step helper — tee stdout to pipeline log, never abort on failure
+# 3. Hàm run_step — in stdout + ghi pipeline log, KHÔNG exit toàn bộ khi fail
 # ---------------------------------------------------------------------------
 run_step() {
     local name="$1"
@@ -75,96 +69,115 @@ run_step() {
 
     local stamp
     stamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    # Ghi vào file log (không in ra màn hình)
-    echo "" >> "$log_file"
-    echo "[$stamp] ===== START: $name =====" >> "$log_file"
-    echo "[$stamp] CMD: $*" >> "$log_file"
+    echo ""
+    echo "[$stamp] ===== START: $name =====" | tee -a "$log_file"
+    echo "[$stamp] CMD: $*" | tee -a "$log_file"
 
     set +e
-    # 1>> "$log_file": Ghi metrics (stdout) thẳng vào file, không hiện terminal
-    # 2>&2: Giữ nguyên stderr (tqdm bar) trên terminal
-    PYTHONUNBUFFERED=1 "$@" 1>> "$log_file" 2>&2
+    PYTHONUNBUFFERED=1 "$@" 2>&1 | tee -a "$log_file"
     local exit_code="${PIPESTATUS[0]}"
     set -e
 
     stamp="$(date '+%Y-%m-%d %H:%M:%S')"
     if [ "$exit_code" -ne 0 ]; then
-        echo "[$stamp] FAIL: $name (exit=$exit_code)" >> "$log_file"
-        echo "[FAIL] Step '$name' exited with code $exit_code. See: $log_file" >&2
-    else
-        echo "[$stamp] DONE: $name" >> "$log_file"
+        echo "[$stamp] FAIL: $name (exit=$exit_code)" | tee -a "$log_file"
+        echo "[WARN] Step '$name' failed with exit=$exit_code — continuing pipeline..." | tee -a "$log_file"
+        return 0
     fi
-    return "$exit_code"
+    echo "[$stamp] DONE: $name" | tee -a "$log_file"
 }
 
 echo "==== Pipeline started at $(date '+%Y-%m-%d %H:%M:%S') ====" >> "$PIPELINE_LOG"
 
 # ---------------------------------------------------------------------------
-# Step 1 — Train PPO baseline
-#
-#   Output:
-#     - PPO model  : results/fig_7/ppo_baseline_model.zip
-#     - Step logs  : results/logs/fig_7_baselines/ppo_steps.log
-#     - Metrics CSV: results/fig_7/ppo_metrics.csv
+# 4. Bước 1 — Beta Sensitivity (Mô phỏng Beta)
 # ---------------------------------------------------------------------------
-run_step "Train PPO baseline ($EPISODES ep x 1000 rounds)" "$PIPELINE_LOG" \
+run_step "Beta Sensitivity Evaluation" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/eval_beta_sensitivity.py \
+        --rounds $ROUNDS \
+        --enable-early-stopping \
+        --m-values 9 16 25 \
+        --beta-start 0.1 \
+        --beta-end 0.9 \
+        --beta-step 0.1 \
+        --out-dir "$RESULTS_DIR/beta_sensitivity"
+
+# ---------------------------------------------------------------------------
+# 5. Bước 2 — Physical Parameter Sensitivity
+# ---------------------------------------------------------------------------
+run_step "Physical Parameter Sensitivity" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/eval_physical_params.py
+
+# ---------------------------------------------------------------------------
+# 6. Bước 3 — Train PPO, Random, Greedy cho M=9 (Chuẩn bị cho Fig 7)
+# ---------------------------------------------------------------------------
+run_step "Train Baselines (PPO, Random, Greedy) for M=9" "$PIPELINE_LOG" \
     $PYTHON -u scripts/train_baselines.py \
-        --m "$M" \
-        --max-fl-rounds 1000 \
-        --episodes "$EPISODES" \
+        --m 9 \
+        --max-fl-rounds $ROUNDS \
+        --episodes $EPISODES \
         --eval-interval 5 \
         --enable-early-stopping \
-        --algorithms ppo \
+        --algorithms ppo random greedy \
         --print-every-steps 10 \
-        --out-dir "$RESULTS_DIR/fig_7" \
-        --log-dir "$LOG_DIR/fig_7_baselines" || {
-    echo "[ERROR] PPO training failed. Pipeline cannot continue." >&2
-    echo "        Check $PIPELINE_LOG for details." >&2
-    exit 1
-}
+        --out-dir "$RESULTS_DIR/fig_7_M9" \
+        --log-dir "$LOG_DIR/fig_7_M9"
 
 # ---------------------------------------------------------------------------
-# Step 2 — Plot Figure 7 (convergence / cost curves)
-#
-#   Output: results/fig_7/figure7.png
+# 7. Bước 4 — Plot Figure 7 (M=9)
 # ---------------------------------------------------------------------------
-run_step "Plot Figure 7" "$PIPELINE_LOG" \
+run_step "Plot Figure 7 (Cumulative Metrics)" "$PIPELINE_LOG" \
     $PYTHON -u scripts/plot_fig_7.py \
-        --input-dir "$RESULTS_DIR/fig_7" \
-        --sigma 2.0 \
-        --enable-early-stopping \
-        --out-dir "$RESULTS_DIR/fig_7"
+        --input-dir "$RESULTS_DIR/fig_7_M9" \
+        --out-dir "$RESULTS_DIR/fig_7_M9"
 
 # ---------------------------------------------------------------------------
-# Step 3 — Scheme Comparison & Ablation (Figures 4, 5, 6)
-#
-#   PPO model loaded from: results/fig_7/ppo_baseline_model[.zip]
-#   Output: results/eval_schemes/
+# 8. Bước 5 — Train PPO cho các M còn lại (Chuẩn bị cho Fig 4, 5, 6)
 # ---------------------------------------------------------------------------
-PPO_MODEL_PATH="$RESULTS_DIR/fig_7/ppo_baseline_model"
-
-if [ -f "${PPO_MODEL_PATH}.zip" ] || [ -f "$PPO_MODEL_PATH" ]; then
-    run_step "Scheme Comparison (Figs 4, 5, 6)" "$PIPELINE_LOG" \
-        $PYTHON -u scripts/run_fig_4_5_6.py \
-            --rounds 1000 \
-            --m-values 9 16 25 36 49 \
-            --model-path "$PPO_MODEL_PATH" \
-            --lag-threshold 1e4 \
+for m_val in 16 25 36 49; do
+    run_step "Train PPO baseline for M=$m_val" "$PIPELINE_LOG" \
+        $PYTHON -u scripts/train_baselines.py \
+            --m "$m_val" \
+            --max-fl-rounds $ROUNDS \
+            --episodes $EPISODES \
+            --eval-interval 5 \
             --enable-early-stopping \
-            --out-dir "$RESULTS_DIR/eval_schemes"
-else
-    echo "[ERROR] PPO model not found at ${PPO_MODEL_PATH}[.zip]" | tee -a "$PIPELINE_LOG"
-    echo "        Step 1 (PPO training) likely failed or did not save correctly." | tee -a "$PIPELINE_LOG"
-    exit 1
-fi
-
+            --algorithms ppo \
+            --print-every-steps 10 \
+            --out-dir "$RESULTS_DIR/fig_7_M${m_val}" \
+            --log-dir "$LOG_DIR/fig_7_M${m_val}"
+done
 
 # ---------------------------------------------------------------------------
-# Done
+# 9. Bước 6 — Scheme Comparison & Ablation (Figure 4, 5, 6)
+# ---------------------------------------------------------------------------
+PPO_MODEL_PATH="$RESULTS_DIR/fig_7_M{M}/ppo_baseline_model"
+
+run_step "Scheme Comparison (Figs 4, 5, 6) for all M" "$PIPELINE_LOG" \
+    $PYTHON -u scripts/run_fig_4_5_6.py \
+        --rounds $ROUNDS \
+        --m-values 9 16 25 36 49 \
+        --model-path "$PPO_MODEL_PATH" \
+        --lag-threshold 1e4 \
+        --enable-early-stopping \
+        --out-dir "$RESULTS_DIR/eval_schemes_all"
+
+# ---------------------------------------------------------------------------
+# 10. Zip kết quả
+# ---------------------------------------------------------------------------
+ZIP_PATH="$RESULTS_DIR/experiment_results.zip"
+echo "[INFO] Zipping results..." | tee -a "$PIPELINE_LOG"
+set +e
+zip -r "$ZIP_PATH" "$RESULTS_DIR/" --exclude "*.zip" 2>&1 | tee -a "$PIPELINE_LOG"
+set -e
+
+# ---------------------------------------------------------------------------
+# 11. Kết thúc
 # ---------------------------------------------------------------------------
 echo "" | tee -a "$PIPELINE_LOG"
 echo "==== Pipeline finished at $(date '+%Y-%m-%d %H:%M:%S') ====" | tee -a "$PIPELINE_LOG"
 echo ""
 echo "Pipeline done."
-echo "  Results     : $RESULTS_DIR"
+echo "  Results  : $RESULTS_DIR"
 echo "  Pipeline log: $PIPELINE_LOG"
+echo "  Zip      : $ZIP_PATH"
